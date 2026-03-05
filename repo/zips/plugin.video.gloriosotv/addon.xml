@@ -3,17 +3,17 @@
 	<requires>
 		<import addon="script.module.six" />
 		<import addon="script.module.kodi-six" />
-		<import addon="script.module.requests-cache"/>
+		<import addon="script.module.requests-cache" />
 		<import addon="script.module.requests"/>
-		<import addon="script.module.websocket" optional="true"/>
-		<import addon="script.module.youtube.dl" optional="true"/>
-		<import addon="plugin.video.youtube" optional="true" />
-		<import addon="script.module.dateutil" optional="true" />
-		<import addon="script.module.resolveurl" optional="true"/>
-		<import addon="script.module.urlresolver" optional="true"/>
-		<import addon="script.module.cloudscraper" optional="true"/>
-		<import addon="script.module.inputstreamhelper" optional="true"/>
-		<import addon="script.module.slproxy" optional="true"/>
+		<import addon="script.module.websocket" />
+		<import addon="script.module.youtube.dl" />
+		<import addon="plugin.video.youtube"  />
+		<import addon="script.module.dateutil"  />
+		<import addon="script.module.resolveurl" />
+		<import addon="script.module.urlresolver" />
+		<import addon="script.module.cloudscraper" />
+		<import addon="script.module.inputstreamhelper" />
+		<import addon="script.module.slproxy" />
 	</requires>
 	<extension point="xbmc.python.pluginsource" library="default.py">
 		<provides>video</provides>
