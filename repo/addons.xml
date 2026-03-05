@@ -370,7 +370,7 @@ v0.5.9 (2022-03-22)
     </extension>
 </addon>
 	
-<addon id="script.module.slproxy" name="SLProxy" version="0.5.1" provider-name="r1que">
+<addon id="script.module.slproxy" name="SLProxy" version="0.5.2" provider-name="r1que">
   <requires>
     <!-- <import addon="xbmc.python" version="2.24.0"/> -->
     <import addon="script.module.requests"/>

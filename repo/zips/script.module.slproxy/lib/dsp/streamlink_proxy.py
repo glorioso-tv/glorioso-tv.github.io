@@ -79,6 +79,10 @@ elif six.PY2:
 import ssl
 from urllib3.poolmanager import PoolManager
 from requests.adapters import HTTPAdapter
+try:
+    from urllib3.util.retry import Retry
+except Exception:
+    from requests.packages.urllib3.util.retry import Retry
 
 
 # HTTPServer errors
@@ -154,6 +158,202 @@ def event_is_set(evt):
     if hasattr(evt, "is_set"):
         return evt.is_set()
     return evt.isSet()
+
+
+try:
+    BrokenPipeError
+except NameError:
+    BrokenPipeError = socket.error
+
+try:
+    ConnectionResetError
+except NameError:
+    ConnectionResetError = socket.error
+
+
+STOP_EXCEPTIONS = (BrokenPipeError, ConnectionResetError, socket.error)
+
+
+def is_client_disconnect(exc):
+    if isinstance(exc, STOP_EXCEPTIONS):
+        err_no = getattr(exc, "errno", None)
+        if err_no is None:
+            return True
+        return err_no in ACCEPTABLE_ERRNO
+    return False
+
+
+class TTLCache(object):
+    def __init__(self, max_entries=256):
+        self._max_entries = max_entries
+        self._data = {}
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        now = time.time()
+        with self._lock:
+            item = self._data.get(key)
+            if not item:
+                return None
+            expires_at, value = item
+            if expires_at <= now:
+                self._data.pop(key, None)
+                return None
+            return value
+
+    def set(self, key, value, ttl):
+        now = time.time()
+        expires_at = now + max(1, int(ttl))
+        with self._lock:
+            if len(self._data) >= self._max_entries:
+                # Remove oldest entry first to keep memory bounded.
+                oldest = min(self._data.items(), key=lambda kv: kv[1][0])[0]
+                self._data.pop(oldest, None)
+            self._data[key] = (expires_at, value)
+
+
+HTTP_CACHE = TTLCache(max_entries=512)
+LOW_LATENCY_CHUNK = 16 * 1024
+STEADY_CHUNK = 64 * 1024
+
+
+def build_retry():
+    kwargs = {
+        "total": 4,
+        "connect": 4,
+        "read": 4,
+        "backoff_factor": 0.2,
+        "status_forcelist": [429, 500, 502, 503, 504],
+        "raise_on_status": False,
+    }
+    try:
+        return Retry(allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]), **kwargs)
+    except TypeError:
+        return Retry(method_whitelist=frozenset(["GET", "HEAD", "OPTIONS"]), **kwargs)
+
+
+def build_http_session(headers=None, verify=True):
+    ses = requests.Session()
+    adapter = HTTPAdapter(
+        pool_connections=64,
+        pool_maxsize=64,
+        max_retries=build_retry()
+    )
+    ses.mount("http://", adapter)
+    ses.mount("https://", adapter)
+    ses.verify = verify
+    if headers:
+        ses.headers.update(headers)
+    return ses
+
+
+def iter_low_latency_chunks(response, stop_event=None, initial_chunk=LOW_LATENCY_CHUNK, max_chunk=STEADY_CHUNK):
+    chunk_size = max(4 * 1024, int(initial_chunk))
+    max_chunk = max(chunk_size, int(max_chunk))
+    raw = response.raw
+
+    while True:
+        if stop_event is not None and event_is_set(stop_event):
+            break
+        chunk = raw.read(chunk_size, decode_content=True)
+        if not chunk:
+            break
+        yield chunk
+        if chunk_size < max_chunk:
+            chunk_size = min(chunk_size * 2, max_chunk)
+
+
+def build_xtream_stream_candidates(parsed_url, params):
+    username = params.get("username")
+    password = params.get("password")
+    if not username or not password:
+        return []
+
+    stream_id = params.get("stream") or params.get("stream_id") or params.get("live_id") or params.get("vod_id")
+    if not stream_id:
+        return []
+
+    output = params.get("output") or params.get("container_extension") or params.get("extension") or "ts"
+    output = six.ensure_str(output).lower()
+    if output not in ("ts", "m3u8", "mp4", "mkv", "aac", "mp3"):
+        output = "ts"
+
+    action = six.ensure_str(params.get("action", "")).lower()
+    content_type = six.ensure_str(params.get("type", "")).lower()
+
+    base = "{0}://{1}".format(parsed_url.scheme, parsed_url.netloc)
+    ordered = []
+
+    if "vod" in action or content_type in ("vod", "movie"):
+        ordered = ["movie", "series", "live"]
+    elif "series" in action or content_type == "series":
+        ordered = ["series", "movie", "live"]
+    else:
+        ordered = ["live", "movie", "series"]
+
+    candidates = []
+    for segment in ordered:
+        candidates.append("{0}/{1}/{2}/{3}/{4}.{5}".format(base, segment, username, password, stream_id, output))
+    return candidates
+
+
+def maybe_resolve_xtream_player_api(url, headers=None):
+    try:
+        parsed = urlparse(url)
+        if "/player_api.php" not in parsed.path:
+            return url
+        params = dict(parse_qsl(parsed.query))
+        if not params.get("username") or not params.get("password"):
+            return url
+    except Exception:
+        return url
+
+    cache_key = "xtream::{0}".format(url)
+    cached = HTTP_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    ses = build_http_session(headers=headers, verify=False)
+    try:
+        probe = None
+        # Some panels redirect player_api directly to a playable URL.
+        try:
+            probe = ses.get(url, headers=headers, allow_redirects=True, stream=True, timeout=(4, 12))
+            ctype = six.ensure_str(probe.headers.get("Content-Type", "")).lower()
+            if probe.status_code < 400 and (
+                "video/" in ctype or "mpegurl" in ctype or ".m3u8" in six.ensure_str(probe.url)
+            ):
+                resolved = probe.url
+                HTTP_CACHE.set(cache_key, resolved, 300)
+                return resolved
+        except Exception:
+            pass
+        finally:
+            try:
+                probe.close()
+            except Exception:
+                pass
+
+        for candidate in build_xtream_stream_candidates(parsed, params):
+            resp = None
+            try:
+                resp = ses.get(candidate, headers=headers, allow_redirects=True, stream=True, timeout=(4, 12))
+                if resp.status_code < 400:
+                    resolved = resp.url
+                    HTTP_CACHE.set(cache_key, resolved, 300)
+                    return resolved
+            except Exception:
+                continue
+            finally:
+                if resp is not None:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+    finally:
+        ses.close()
+
+    return url
 
 
 # override SL decryptor function
@@ -255,8 +455,18 @@ def create_decryptor(self, key, sequence):
                 _tmp = key_uri.split('nhl.com/')
                 uri = '%s/%s' % (tele_key, _tmp[-1])
         elif tinyurl_key:
-            tiny = requests.get(key_uri, headers=self.session.get_option("http-headers"), timeout=15)
-            uri = tiny.url
+            ses = build_http_session(headers=self.session.get_option("http-headers"), verify=False)
+            tiny = None
+            try:
+                tiny = ses.get(key_uri, headers=self.session.get_option("http-headers"), timeout=15, allow_redirects=True)
+                uri = tiny.url
+            finally:
+                try:
+                    if tiny is not None:
+                        tiny.close()
+                except:
+                    pass
+                ses.close()
         elif sports24_key:
             if "cbsi.live.ott.irdeto.com" in key_uri:
                 _tmp = base64.b64encode(key_uri.encode() if six.PY3 else key_uri)
@@ -266,14 +476,26 @@ def create_decryptor(self, key, sequence):
                 _tmp = urljoin(sports24_key, "/espn/espnpkey.php?url=")
                 uri = key_uri.replace("https://playback.svcs.plus.espn.com/events/", _tmp)
         elif flowcable_key:
+            ses = None
             try:
-                res = requests.get(key_uri, headers=self.session.get_option("http-headers"), verify=False, timeout=15)
+                ses = build_http_session(headers=self.session.get_option("http-headers"), verify=False)
+                res = ses.get(key_uri, headers=self.session.get_option("http-headers"), verify=False, timeout=15, allow_redirects=True)
                 auth = res.headers["xauth"]
                 hdrs = self.session.get_option("http-headers")
                 hdrs["Xauth"] = auth
                 self.session.set_option("http-headers", hdrs)
+                try:
+                    res.close()
+                except:
+                    pass
             except:
                 pass
+            finally:
+                try:
+                    if ses is not None:
+                        ses.close()
+                except:
+                    pass
             uri = key_uri
         else:
             uri = key_uri
@@ -650,6 +872,8 @@ class MyHandler(BaseHTTPRequestHandler):
         xbmc.log('[StreamLink_Proxy] http-headers added: %s' % str(session.get_option("http-headers")))
 
         try:
+            fURL = maybe_resolve_xtream_player_api(fURL, headers=session.get_option("http-headers"))
+
             # handle zoomtv redirects
             if session.options.get("zoomtv-auth") is not None:
                 res_ = session.http.get(fURL.replace("hls://", ""), allow_redirects=False)
@@ -697,7 +921,7 @@ class MyHandler(BaseHTTPRequestHandler):
                     # xbmc.log('[StreamLink_Proxy] Playing stream %s with quality \'%s\''%(streams[quality],quality))
                     isHLS = (isinstance(streams[quality], HLSStream))
                     isHTTP = (isinstance(streams[quality], HTTPStream))
-                    cache = 100 * 1024
+                    cache = LOW_LATENCY_CHUNK
                     self.send_response(200)
                     self.send_header('Content-Type', 'video/mp2t' if isHLS or isHTTP else 'video/unknown')
                     # self.send_header('Content-Range', 'bytes 0-%s/*'%str(cache))
@@ -753,19 +977,22 @@ class MyHandler(BaseHTTPRequestHandler):
                             xbmc.log("[StreamLink_Proxy] Error: no data returned from stream!")
                             break
 
-                        self.wfile.write(buf)
+                        try:
+                            self.wfile.write(buf)
+                            self.wfile.flush()
+                        except STOP_EXCEPTIONS as e:
+                            if is_client_disconnect(e):
+                                break
+                            raise
+
+                        if cache < STEADY_CHUNK:
+                            cache = min(cache * 2, STEADY_CHUNK)
 
                     # self.wfile.close()
                     # self.handlerStop.set()
 
-            except socket.error as e:
-                if isinstance(e.args, tuple):
-                    if e.errno == errno.EPIPE:
-                        # remote peer disconnected
-                        xbmc.log('[StreamLink_Proxy] detected remote disconnect!')
-                    else:
-                        xbmc.log('[StreamLink_Proxy] socket error %s' % str(e))
-                else:
+            except STOP_EXCEPTIONS as e:
+                if not is_client_disconnect(e):
                     xbmc.log('[StreamLink_Proxy] socket error %s' % str(e))
 
             except Exception as err:
@@ -789,18 +1016,25 @@ class MyHandler(BaseHTTPRequestHandler):
             else:
                 headers = {"User-Agent": useragents.CHROME}
 
-            r = requests.get(pUrl, headers=headers, verify=False, timeout=15)
+            cache_key = "vod::{0}::{1}::{2}".format(pUrl, six.ensure_str(m3u8mod), six.ensure_str(sorted(headers.items())))
+            cached = HTTP_CACHE.get(cache_key)
+            if cached:
+                ct, m3u8 = cached
+            else:
+                ses = build_http_session(headers=headers, verify=False)
+                r = ses.get(pUrl, headers=headers, verify=False, timeout=15, allow_redirects=True)
 
-            try:
-                cl = r.headers['content-length']
-            except:
-                cl = str(len(r.content))
-
-            try:
-                ct = r.headers['content-type']
-            except:
-                ct = 'application/vnd.apple.mpegurl'
-            m3u8 = r.text
+                try:
+                    ct = r.headers['content-type']
+                except:
+                    ct = 'application/vnd.apple.mpegurl'
+                m3u8 = r.text
+                HTTP_CACHE.set(cache_key, (ct, m3u8), 15)
+                try:
+                    r.close()
+                except:
+                    pass
+                ses.close()
 
             try:
                 m3u8mod = base64.b64decode(m3u8mod).decode('utf-8')
@@ -815,17 +1049,19 @@ class MyHandler(BaseHTTPRequestHandler):
                 m3u8 = re.sub(regex, repl, m3u8, 0)
                 m3u8 = m3u8.encode('utf-8') if six.PY2 else m3u8
 
+            cl = str(len(m3u8.encode('utf-8') if six.PY3 and isinstance(m3u8, six.text_type) else m3u8))
+
             self.send_response(200)
             self.send_header('Content-type', ct)  # m3u8
             self.send_header("Content-Length", cl)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(m3u8)
+            self.wfile.write(m3u8.encode('utf-8') if six.PY3 and isinstance(m3u8, six.text_type) else m3u8)
             # self.wfile.close()
 
-        except socket.error as err:
-            xbmc.log('[StreamLink_Proxy] Socket Error: {0}'.format(err))
-            pass
+        except STOP_EXCEPTIONS as err:
+            if not is_client_disconnect(err):
+                xbmc.log('[StreamLink_Proxy] Socket Error: {0}'.format(err))
 
         except Exception as err:
             # traceback.print_exc()
@@ -833,10 +1069,12 @@ class MyHandler(BaseHTTPRequestHandler):
             xbmc.log('[StreamLink_Proxy] could not rewrite or open playlist: {0}'.format(err))
 
     def restreamWTV(self, link, quality, headers):
+        r = None
+        s = None
         try:
             prx = 'http://%s:%s/wtvrestream/?url=' % (SLProxy.HOST_NAME, SLProxy.PORT_NUMBER)
             scode = 0
-            s = requests.Session()
+            s = build_http_session(verify=False)
             # s = Streamlink().http
 
             if headers is None:
@@ -856,7 +1094,7 @@ class MyHandler(BaseHTTPRequestHandler):
 
             r = s.get(
                 link,
-                stream=isTS,
+                stream=True,
                 headers=headers,
                 allow_redirects=True,
                 timeout=15
@@ -947,19 +1185,34 @@ class MyHandler(BaseHTTPRequestHandler):
                     #    self.wfile.write(chunk.lstrip(b'\x89\x50\x4E\x47\x0D\x0A\x1A\x0A'))
                     #         rmhead = 0
                     #     else:
-                    for chunk in r.iter_content(chunk_size=64 * 1024):
-                        if not chunk or event_is_set(self.handlerStop):
+                    for chunk in iter_low_latency_chunks(r, stop_event=self.handlerStop):
+                        if not chunk:
                             break
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
+                        try:
+                            self.wfile.write(chunk)
+                            self.wfile.flush()
+                        except STOP_EXCEPTIONS as err:
+                            if is_client_disconnect(err):
+                                break
+                            raise
 
-        except socket.error:
-            pass
+        except STOP_EXCEPTIONS as err:
+            if not is_client_disconnect(err):
+                xbmc.log('[SLProxy] socket error: {0}'.format(err))
 
         except Exception as err:
             # traceback.print_exc()
             self.handlerStop.set()
             xbmc.log('[SLProxy] could not open playlist: {0}'.format(err))
+        finally:
+            try:
+                r.close()
+            except:
+                pass
+            try:
+                s.close()
+            except:
+                pass
 
         pass
 
