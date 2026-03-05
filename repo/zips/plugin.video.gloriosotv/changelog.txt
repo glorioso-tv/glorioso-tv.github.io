@@ -1,2 +1,2 @@
-[B]Version 1.0.9[/B]
+[B]Version 1.1.0[/B]
 Leia, Matrix, Nexus compatible version
