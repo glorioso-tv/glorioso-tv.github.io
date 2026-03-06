@@ -21,7 +21,20 @@ import requests
 import logging
 import base64
 import random
-import binascii 
+import binascii
+import struct
+
+_dec = False
+try:
+    from Cryptodome.Cipher import AES
+    _dec = True
+except ImportError:
+    try:
+        from Crypto.Cipher import AES
+        _dec = True
+    except ImportError:
+        _dec = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -74,6 +87,10 @@ global URL_BASE_PARAMS
 global CHECK_URL_PARAMS
 global URL_BASE_STALKER
 global TOKEN_STALKER
+global AES_KEY
+global AES_IV
+global AES_METHOD
+global MEDIA_SEQUENCE
 MAX_RETRY = 28
 DELAY_MODE = True
 URL_BASE = ''
@@ -89,17 +106,43 @@ PARAMS = ''
 CHECK_URL_PARAMS = True
 URL_BASE_STALKER = ''
 TOKEN_STALKER = ''
+AES_KEY = None
+AES_IV = None
+AES_METHOD = None
+MEDIA_SEQUENCE = 0
 NSPLAYER = False
 
 # permite ativar/desativar sistema de IP falso
 USE_FAKE_IP = True
 
+def num_to_iv(n):
+    # Converte o número da sequência em um IV de 16 bytes (padronizado para HLS)
+    return struct.pack(">8xq", n)
+
+def get_aes_decryptor(key_data, iv, method="AES-128"):
+    if method != "AES-128":
+        raise Exception("Apenas AES-128 é suportado")
+
+    # Garante que o IV tenha 16 bytes
+    if isinstance(iv, int):
+        iv = num_to_iv(iv)
+    elif isinstance(iv, bytes) and len(iv) < 16:
+        iv = b"\x00" * (16 - len(iv)) + iv
+
+    return AES.new(key_data, AES.MODE_CBC, iv)
+
+def process_hex_key(hls_aes_key):
+    # Converte chave em hexadecimal para binário (16 bytes)
+    return binascii.unhexlify(hls_aes_key)[:16]
+
+def decode_custom_uri(ply_key, key_uri):
+    # Lógica de manipulação de string/base64 usada no script
+    uri_part1 = base64.urlsafe_b64decode(ply_key)
+    uri_part2 = base64.urlsafe_b64encode(key_uri.encode())
+    return "https://www.plylive.me" + (uri_part1 + uri_part2).decode()
+
 # função para gerar IP aleatório (rede privada, imitando brasileira)
 # já existia gerar_ip_brasileiro, mas expomos para facilitar uso
-
-def get_fake_ip():
-    """Retorna um IP aleatório da faixa privada (padrão usado como fake)."""
-    return gerar_ip_brasileiro()  # mantém compatibilidade
 
 
 def gerar_ip_brasileiro():
@@ -475,6 +518,48 @@ class XtreamCodes:
                         log('Status Code: %s'%str(code))
                         if code == 200:
                             src = r.text
+                            global AES_KEY, AES_IV, AES_METHOD, MEDIA_SEQUENCE
+                            if _dec and '#EXT-X-KEY' in src:
+                                key_match = re.search(r'#EXT-X-KEY:METHOD=(AES-128),URI="([^"]+)"(?:,IV=([^ \n]+))?', src)
+                                if key_match:
+                                    AES_METHOD = key_match.group(1)
+                                    key_uri = key_match.group(2)
+                                    iv_hex = key_match.group(3)
+
+                                    if iv_hex:
+                                        AES_IV = binascii.unhexlify(iv_hex.replace('0x', ''))
+                                    else:
+                                        AES_IV = None
+
+                                    if not key_uri.startswith('http'):
+                                        base_uri = url.rsplit('/', 1)[0]
+                                        key_url = base_uri + '/' + key_uri
+                                    else:
+                                        key_url = key_uri
+
+                                    try:
+                                        if 'ply-key' in key_url:
+                                            ply_key = key_url.split('ply-key=')[1]
+                                            key_url = decode_custom_uri(ply_key, key_uri)
+
+                                        key_res = requests.get(key_url, headers=header_, timeout=4, verify=False)
+                                        if key_res.status_code == 200:
+                                            key_data = key_res.content
+                                            try:
+                                                AES_KEY = process_hex_key(key_data.decode())
+                                            except (ValueError, TypeError):
+                                                AES_KEY = key_data[:16]
+                                            log('AES Key fetched successfully.')
+                                        else:
+                                            log('Failed to fetch AES key: status %s' % key_res.status_code)
+                                            AES_KEY = None
+                                    except Exception as e:
+                                        log('Error fetching AES key: %s' % e)
+                                        AES_KEY = None
+
+                                seq_match = re.search(r'#EXT-X-MEDIA-SEQUENCE:(\d+)', src)
+                                if seq_match:
+                                    MEDIA_SEQUENCE = int(seq_match.group(1))
                             if '.m3u8' in src and 'RESOLUTION' in src:
                                 url = self.get_max_m3u8(src)
                                 log('URL DO GET MAX M3U8: %s'%url)
@@ -563,13 +648,46 @@ class XtreamCodes:
                     log('Status Code: %s'%str(code))
                     if code == 200:
                         CACHE_CHUNKS = []
-                        for chunk in r.iter_content(50*1024):                      
+                        content_to_send = r.content
+
+                        if _dec and AES_KEY:
                             try:
-                                self_server.conn.sendall(chunk)
-                                CACHE_CHUNKS.append(chunk)
-                            except:
-                                pass
+                                current_iv = AES_IV
+                                if current_iv is None:
+                                    seq_num_match = re.search(r'(\d+)\.ts', ts)
+                                    if seq_num_match:
+                                        segment_sequence = int(seq_num_match.group(1))
+                                        current_iv = num_to_iv(segment_sequence)
+                                    else:
+                                        log('Could not determine segment sequence number for IV from URL.')
+                                        current_iv = None
+
+                                if current_iv:
+                                    log('Decrypting segment with key and IV')
+                                    decryptor = get_aes_decryptor(AES_KEY, current_iv, AES_METHOD)
+                                    decrypted_content = decryptor.decrypt(content_to_send)
+
+                                    pad_len = decrypted_content[-1]
+                                    if six.PY2 and isinstance(pad_len, str): pad_len = ord(pad_len)
+                                    if pad_len > 0 and pad_len <= 16:
+                                        if decrypted_content[-pad_len:] == bytes([pad_len]) * pad_len:
+                                            content_to_send = decrypted_content[:-pad_len]
+                                        else:
+                                            content_to_send = decrypted_content
+                                    else:
+                                        content_to_send = decrypted_content
+                                else:
+                                    log('No IV for decryption, sending encrypted segment.')
+                            except Exception as e:
+                                log('AES decryption failed: %s' % e)
+
+                        try:
+                            self_server.conn.sendall(content_to_send)
+                            CACHE_CHUNKS.append(content_to_send)
+                        except:
+                            pass
                         break
+
                     else:
                         if i == 0:
                             DELAY_MODE = False

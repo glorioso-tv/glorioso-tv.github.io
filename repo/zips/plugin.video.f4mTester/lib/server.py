@@ -30,6 +30,19 @@ import socket
 import json
 import random
 import re
+import binascii
+import struct
+
+_dec = False
+try:
+    from Cryptodome.Cipher import AES
+    _dec = True
+except ImportError:
+    try:
+        from Crypto.Cipher import AES
+        _dec = True
+    except ImportError:
+        _dec = False
 
 # --- SISTEMA DE DNS (DoH) ---
 # DNS Primario: 1.1.1.1
@@ -120,6 +133,33 @@ def get_random_ua():
     return random.choice(user_agents)
 # --------------------------
 
+def num_to_iv(n):
+    # Converte o número da sequência em um IV de 16 bytes (padronizado para HLS)
+    return struct.pack(">8xq", n)
+
+def get_aes_decryptor(key_data, iv, method="AES-128"):
+    if method != "AES-128":
+        raise Exception("Apenas AES-128 é suportado")
+
+    # Garante que o IV tenha 16 bytes
+    if isinstance(iv, int):
+        iv = num_to_iv(iv)
+    elif isinstance(iv, bytes) and len(iv) < 16:
+        iv = b"\x00" * (16 - len(iv)) + iv
+
+    return AES.new(key_data, AES.MODE_CBC, iv)
+
+def process_hex_key(hls_aes_key):
+    # Converte chave em hexadecimal para binário (16 bytes)
+    return binascii.unhexlify(hls_aes_key)[:16]
+
+def decode_custom_uri(ply_key, key_uri):
+    # Lógica de manipulação de string/base64 usada no script
+    uri_part1 = base64.urlsafe_b64decode(ply_key)
+    uri_part2 = base64.urlsafe_b64encode(key_uri.encode())
+    return "https://www.plylive.me" + (uri_part1 + uri_part2).decode()
+
+
 HOST_NAME = '127.0.0.1'
 PORT_NUMBER = 55334
 
@@ -131,6 +171,10 @@ URL_TOKEN = ''
 URL_NORMAL = ''
 HTTPS_PORT = False
 STOP_SERVER = False
+AES_KEY = None
+AES_IV = None
+AES_METHOD = None
+MEDIA_SEQUENCE = 0
 URL_REFERER = ''
 MAX_CPU = 98
 
@@ -317,6 +361,10 @@ class handler(SimpleHTTPRequestHandler):
         global GLOBAL_HEADERS
         global STOP_SERVER
         global API_INSTANCE
+        global AES_KEY
+        global AES_IV
+        global AES_METHOD
+        global MEDIA_SEQUENCE
         if not headers:
             headers = GLOBAL_HEADERS
         
@@ -363,17 +411,47 @@ class handler(SimpleHTTPRequestHandler):
             if not STOP_SERVER:  
                 try:
                     with requests.get(url, headers=headers, stream=True, verify=False) as r:
-                        if r.status_code == 200:
+                        if r.status_code == 200:                            
+                            content_to_send = r.content
+                            if _dec and AES_KEY:
+                                try:
+                                    current_iv = AES_IV
+                                    if current_iv is None:
+                                        seq_num_match = re.search(r'(\d+)\.ts', url)
+                                        if seq_num_match:
+                                            segment_sequence = int(seq_num_match.group(1))
+                                            current_iv = num_to_iv(segment_sequence)
+                                        else:
+                                            logging.debug("Could not determine segment sequence number for IV from URL.")
+                                            current_iv = None
+                                    
+                                    if current_iv:
+                                        logging.debug("Decrypting segment with key and IV")
+                                        decryptor = get_aes_decryptor(AES_KEY, current_iv, AES_METHOD)
+                                        decrypted_content = decryptor.decrypt(content_to_send)
+
+                                        pad_len = decrypted_content[-1]
+                                        if six.PY2 and isinstance(pad_len, str): pad_len = ord(pad_len)
+                                        if pad_len > 0 and pad_len <= 16:
+                                            if decrypted_content[-pad_len:] == bytes([pad_len]) * pad_len:
+                                                content_to_send = decrypted_content[:-pad_len]
+                                            else:
+                                                content_to_send = decrypted_content
+                                        else:
+                                            content_to_send = decrypted_content
+                                    else:
+                                        logging.debug("No IV for decryption, sending encrypted segment.")
+                                except Exception as e:
+                                    logging.debug("AES decryption failed: %s" % e)
+
                             self.send_response(200)
                             self.send_header('Content-type','video/mp2t')
                             self.end_headers()
-                            for chunk in r.iter_content(300000):                           
-                                try:
-                                    self.wfile.write(chunk)
-                                except Exception:
-                                    break
-                                if STOP_SERVER:
-                                    break
+                            try:
+                                self.wfile.write(content_to_send)
+                            except Exception:
+                                pass # Client disconnected
+
                     break
                 except Exception:
                     time.sleep(0.5)
@@ -415,6 +493,10 @@ class handler(SimpleHTTPRequestHandler):
         global URL_TOKEN
         global URL_NORMAL
         global URL_REFERER
+        global AES_KEY
+        global AES_IV
+        global AES_METHOD
+        global MEDIA_SEQUENCE
         global STOP_SERVER
         # if not URL_REFERER:
         #     URL_REFERER = url
@@ -480,6 +562,48 @@ class handler(SimpleHTTPRequestHandler):
                             self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
                             self.end_headers()
                             text_ = r.text
+                            if _dec and '#EXT-X-KEY' in text_:
+                                key_match = re.search(r'#EXT-X-KEY:METHOD=(AES-128),URI="([^"]+)"(?:,IV=([^ \n]+))?', text_)
+                                if key_match:
+                                    AES_METHOD = key_match.group(1)
+                                    key_uri = key_match.group(2)
+                                    iv_hex = key_match.group(3)
+
+                                    if iv_hex:
+                                        AES_IV = binascii.unhexlify(iv_hex.replace('0x', ''))
+                                    else:
+                                        AES_IV = None
+
+                                    if not key_uri.startswith('http'):
+                                        base_uri = url.rsplit('/', 1)[0]
+                                        key_url = base_uri + '/' + key_uri
+                                    else:
+                                        key_url = key_uri
+
+                                    try:
+                                        if 'ply-key' in key_url:
+                                            ply_key = key_url.split('ply-key=')[1]
+                                            key_url = decode_custom_uri(ply_key, key_uri)
+
+                                        key_res = requests.get(key_url, headers=headers, timeout=4, verify=False)
+                                        if key_res.status_code == 200:
+                                            key_data = key_res.content
+                                            try:
+                                                AES_KEY = process_hex_key(key_data.decode())
+                                            except (ValueError, TypeError):
+                                                AES_KEY = key_data[:16]
+                                            logging.debug('AES Key fetched successfully.')
+                                        else:
+                                            logging.debug('Failed to fetch AES key: status %s' % key_res.status_code)
+                                            AES_KEY = None
+                                    except Exception as e:
+                                        logging.debug('Error fetching AES key: %s' % e)
+                                        AES_KEY = None
+
+                                seq_match = re.search(r'#EXT-X-MEDIA-SEQUENCE:(\d+)', text_)
+                                if seq_match:
+                                    MEDIA_SEQUENCE = int(seq_match.group(1))
+
                             if '.html' in text_ and 'http' in text_:
                                 text_ = text_.replace('http', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url=http')
                             elif 'chunklist_' in text_ and not 'http' in text_:
@@ -524,7 +648,7 @@ class handler(SimpleHTTPRequestHandler):
                 break
 
     def _process_request(self, head=False):
-        global GLOBAL_HEADERS, GLOBAL_URL, M3U8_URL, TS_URL, HTTPS_PORT, URL_REFERER, STOP_SERVER, API_INSTANCE
+        global GLOBAL_HEADERS, GLOBAL_URL, M3U8_URL, TS_URL, HTTPS_PORT, URL_REFERER, STOP_SERVER, API_INSTANCE, AES_KEY
         
         if STOP_SERVER:
             return
@@ -551,6 +675,7 @@ class handler(SimpleHTTPRequestHandler):
             self.end_headers()
             STOP_SERVER = True
             with GLOBAL_LOCK:
+                AES_KEY = None
                 API_INSTANCE = None
             def shutdown(server):
                 server.shutdown()

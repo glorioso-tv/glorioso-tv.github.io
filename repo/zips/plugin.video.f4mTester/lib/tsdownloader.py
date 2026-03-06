@@ -20,6 +20,20 @@ import requests
 import logging
 import base64
 import random
+import binascii
+import struct
+
+_dec = False
+try:
+    from Cryptodome.Cipher import AES
+    _dec = True
+except ImportError:
+    try:
+        from Crypto.Cipher import AES
+        _dec = True
+    except ImportError:
+        _dec = False
+
 try:
     from urllib3.util.retry import Retry
 except ImportError:
@@ -98,6 +112,33 @@ def gerar_ip_brasileiro():
         random.randint(1, 254),
     )
     return ip
+
+def num_to_iv(n):
+    # Converte o número da sequência em um IV de 16 bytes (padronizado para HLS)
+    return struct.pack(">8xq", n)
+
+def get_aes_decryptor(key_data, iv, method="AES-128"):
+    if method != "AES-128":
+        raise Exception("Apenas AES-128 é suportado")
+
+    # Garante que o IV tenha 16 bytes
+    if isinstance(iv, int):
+        iv = num_to_iv(iv)
+    elif isinstance(iv, bytes) and len(iv) < 16:
+        iv = b"\x00" * (16 - len(iv)) + iv
+
+    return AES.new(key_data, AES.MODE_CBC, iv)
+
+def process_hex_key(hls_aes_key):
+    # Converte chave em hexadecimal para binário (16 bytes)
+    return binascii.unhexlify(hls_aes_key)[:16]
+
+def decode_custom_uri(ply_key, key_uri):
+    # Lógica de manipulação de string/base64 usada no script
+    uri_part1 = base64.urlsafe_b64decode(ply_key)
+    uri_part2 = base64.urlsafe_b64encode(key_uri.encode())
+    return "https://www.plylive.me" + (uri_part1 + uri_part2).decode()
+
 
 USE_FAKE_IP = True
 
