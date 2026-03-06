@@ -3,79 +3,55 @@ import re
 
 from streamlink.plugin import Plugin, pluginmatcher
 from streamlink.plugin.api import validate
-from streamlink.plugin.api.utils import itertags
 from streamlink.stream import HLSStream
-from streamlink.utils import parse_json
 
 log = logging.getLogger(__name__)
 
 
 @pluginmatcher(re.compile(
-    r"https?://(?:\w+\.)?nos\.nl/(?:livestream|collectie|video|uitzendingen)",
+    r"https?://(?:www\.)?nos\.nl/(?P<path>artikel|uitzending|livestream)/",
 ))
 class NOS(Plugin):
-    _msg_live_offline = "This livestream is offline."
-    title = None
-    vod_keys = {
-        "pages/Collection/Video/Video": "item",
-        "pages/Video/Video": "video",
-    }
-
-    def get_title(self):
-        return self.title
+    _re_artikel = re.compile(r'data-react-id="video-player-artikel"\s*data-id="(?P<id>\w+)"')
+    _re_uitzending = re.compile(r'data-react-id="video-player-uitzending"\s*data-id="(?P<id>\w+)"')
+    _re_livestream = re.compile(r'data-react-id="live-player"\s*data-id="(?P<id>\w+)"')
+    _re_player_config = re.compile(r"NPOTV\.player\((?P<json>.+)\);")
+    _URL_PLAYER = "https://nos.nl/player/playout/{id}"
 
     def _get_streams(self):
-        res = self.session.http.get(self.url)
-        for script in itertags(res.text, "script"):
-            _type = script.attributes.get("type")
-            if not (_type and _type == "application/json"):
-                continue
+        path = self.match.group("path")
+        if path == "artikel":
+            _re = self._re_artikel
+        elif path == "uitzending":
+            _re = self._re_uitzending
+        elif path == "livestream":
+            _re = self._re_livestream
+        else:
+            return
 
-            video_url = None
-            _data_ssr_name = script.attributes.get("data-ssr-name")
-            if not _data_ssr_name:
-                continue
+        match = _re.search(self.session.http.get(self.url).text)
+        if not match:
+            return
 
-            log.trace(f"Found _data_ssr_name={_data_ssr_name}")
-            if _data_ssr_name == "pages/Broadcasts/Broadcasts":
-                self.title, video_url, is_live = parse_json(script.text, schema=validate.Schema({
-                    "currentLivestream": {
-                        "is_live": bool,
-                        "title": str,
-                        "stream": validate.url(),
-                    }},
-                    validate.get("currentLivestream"),
-                    validate.union_get("title", "stream", "is_live")))
-                if not is_live:
-                    log.error(self._msg_live_offline)
-                    continue
-            elif _data_ssr_name == "pages/Livestream/Livestream":
-                self.title, video_url, is_live = parse_json(script.text, schema=validate.Schema({
-                    "streamIsLive": bool,
-                    "title": str,
-                    "stream": validate.url(),
-                }, validate.union_get("title", "stream", "streamIsLive")))
-                if not is_live:
-                    log.error(self._msg_live_offline)
-                    continue
-            elif _data_ssr_name in self.vod_keys.keys():
-                _key = self.vod_keys[_data_ssr_name]
-                self.title, video_url = parse_json(script.text, schema=validate.Schema({
-                    _key: {
-                        "title": str,
-                        "aspect_ratios": {
-                            "profiles": validate.all([{
-                                "name": str,
-                                "url": validate.url(),
-                            }], validate.filter(lambda n: n["name"] == "hls_unencrypted"))
-                        }
-                    }},
-                    validate.get(_key),
-                    validate.union_get("title", ("aspect_ratios", "profiles", 0, "url"))))
+        video_id = match.group("id")
+        log.debug(f"Found video ID: {video_id}")
 
-            if video_url is not None:
-                yield from HLSStream.parse_variant_playlist(self.session, video_url).items()
-                break
+        res = self.session.http.get(self._URL_PLAYER.format(id=video_id))
+        match = self._re_player_config.search(res.text)
+        if not match:
+            return
+
+        data = validate.parse_json(
+            match.group("json"),
+            schema=validate.Schema({
+                "title": str,
+                "streams": [str],
+            }),
+        )
+
+        for stream_url in data["streams"]:
+            if "m3u8" in stream_url:
+                return HLSStream.parse_variant_playlist(self.session, stream_url)
 
 
 __plugin__ = NOS

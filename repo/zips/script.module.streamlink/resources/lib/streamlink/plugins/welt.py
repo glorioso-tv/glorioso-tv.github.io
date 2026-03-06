@@ -1,53 +1,63 @@
+import logging
 import re
-from urllib.parse import quote
 
 from streamlink.plugin import Plugin, pluginmatcher
-from streamlink.plugin.api import useragents, validate
-from streamlink.plugin.api.utils import itertags
+from streamlink.plugin.api import validate
 from streamlink.stream import HLSStream
-from streamlink.utils import parse_json
 
-
-def get_json(text):
-    for script in itertags(text, "script"):
-        if script.attributes.get("type") == "application/json" \
-                and script.attributes.get("data-content") == "VideoPlayer.Config":
-            return script.text
-    return None
+log = logging.getLogger(__name__)
 
 
 @pluginmatcher(re.compile(
-    r"https?://(\w+\.)?welt\.de/?"
+    r"https?://(?:www\.)?welt\.de/",
 ))
 class Welt(Plugin):
-    _re_url_vod = re.compile(
-        r"""mediathek""",
-        re.IGNORECASE
-    )
-    _url_vod = "https://www.welt.de/onward/video/play/{0}"
-    _schema = validate.Schema(
-        validate.transform(get_json),
-        validate.transform(parse_json),
-        validate.get("sources"),
-        validate.filter(lambda obj: obj["extension"] == "m3u8"),
-        validate.map(lambda obj: obj["src"]),
-        validate.get(0)
-    )
-
-    def __init__(self, url):
-        super().__init__(url)
-        self.isVod = self._re_url_vod.search(url) is not None
+    _re_data = re.compile(r"window\.__WELT__\s*=\s*({.+});")
 
     def _get_streams(self):
-        headers = {"User-Agent": useragents.CHROME}
-        hls_url = self.session.http.get(self.url, headers=headers, schema=self._schema)
-        headers["Referer"] = self.url
+        match = self._re_data.search(self.session.http.get(self.url).text)
+        if not match:
+            return
 
-        if self.isVod:
-            url = self._url_vod.format(quote(hls_url, safe=""))
-            hls_url = self.session.http.get(url, headers=headers).url
+        data = validate.parse_json(
+            match.group(1),
+            schema=validate.Schema(
+                {
+                    "page": {
+                        "content": {
+                            "elements": [
+                                validate.all(
+                                    {
+                                        "type": str,
+                                        validate.optional("player"): {
+                                            "config": {
+                                                "sources": [{
+                                                    "src": validate.url(),
+                                                    "type": str,
+                                                }],
+                                            },
+                                        },
+                                    },
+                                ),
+                            ],
+                        },
+                    },
+                },
+                validate.get("page", {}),
+                validate.get("content", {}),
+                validate.get("elements", []),
+            ),
+        )
 
-        return HLSStream.parse_variant_playlist(self.session, hls_url, headers=headers)
+        for element in data:
+            if element.get("type") != "video":
+                continue
+            player = element.get("player")
+            if not player:
+                continue
+            for source in player.get("config", {}).get("sources", []):
+                if source.get("type") == "application/x-mpegURL":
+                    return HLSStream.parse_variant_playlist(self.session, source["src"])
 
 
 __plugin__ = Welt
