@@ -6,8 +6,8 @@
 		<import addon="script.module.requests-cache" />
 		<import addon="script.module.requests"/>
 		<import addon="script.module.websocket" />
-		<import addon="script.module.youtube.dl" />
-		<import addon="plugin.video.youtube"  />
+		<import addon="script.module.youtube.dl" optional="true"/>
+		<import addon="plugin.video.youtube"  optional="true"/>
 		<import addon="script.module.dateutil"  />
 		<import addon="script.module.resolveurl" />
 		<import addon="script.module.urlresolver" />

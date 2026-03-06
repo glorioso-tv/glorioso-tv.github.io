@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.module.slproxy" name="SLProxy" version="0.5.2" provider-name="r1que">
+<addon id="script.module.slproxy" name="SLProxy" version="0.5.3" provider-name="r1que">
   <requires>
     <!-- <import addon="xbmc.python" version="2.24.0"/> -->
     <import addon="script.module.requests"/>

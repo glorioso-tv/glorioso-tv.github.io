@@ -29,6 +29,12 @@ import xbmcvfs
 import sys
 import traceback  # noQA
 import os
+
+# Fix LibreELEC/CoreELEC: Force use of addon libraries
+for lib in ['script.module.streamlink', 'script.module.requests', 'script.module.six']:
+    path = xbmcvfs.translatePath('special://home/addons/%s/lib' % lib)
+    sys.path.insert(0, path)
+
 import errno
 import re
 import time
@@ -790,9 +796,11 @@ class MyHandler(BaseHTTPRequestHandler):
             headers = quote_plus(sp[1]).replace('%3D', '=').replace('%26', '&') if ' ' in sp[1] else sp[1]
             headers = dict(parse_qsl(headers))
 
-            # session.set_option("http-ssl-verify", False)
-            # session.set_option("hls-segment-threads", 1)
-            # session.set_option("hls-segment-timeout", 10)
+            session.set_option("hls-timeout", 60)
+            session.set_option("hls-segment-threads", 2)
+            session.set_option("hls-segment-timeout", 30)
+            session.set_option("http-stream-timeout", 3600)
+            session.set_option("ringbuffer-size", 32 * 1024 * 1024)
 
             try:
                 if 'Referer' in headers:
@@ -916,16 +924,17 @@ class MyHandler(BaseHTTPRequestHandler):
             if not streams.get(quality, None):
                 quality = "best"
 
+            # Fix OSD Freeze: Send headers immediately
+            isHLS = (isinstance(streams[quality], HLSStream))
+            isHTTP = (isinstance(streams[quality], HTTPStream))
+            self.send_response(200)
+            self.send_header('Content-Type', 'video/mp2t' if isHLS or isHTTP else 'video/unknown')
+            self.end_headers()
+
             try:
                 with streams[quality].open() as stream:
                     # xbmc.log('[StreamLink_Proxy] Playing stream %s with quality \'%s\''%(streams[quality],quality))
-                    isHLS = (isinstance(streams[quality], HLSStream))
-                    isHTTP = (isinstance(streams[quality], HTTPStream))
-                    cache = LOW_LATENCY_CHUNK
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'video/mp2t' if isHLS or isHTTP else 'video/unknown')
-                    # self.send_header('Content-Range', 'bytes 0-%s/*'%str(cache))
-                    self.end_headers()
+                    cache = STEADY_CHUNK  # Pre-fill Buffer: Start with 64KB
 
                     # init zoomtv auth refresh
                     zoomtv_auth = None
@@ -966,7 +975,7 @@ class MyHandler(BaseHTTPRequestHandler):
                                         ses.mount("https://", TLS12HttpAdapter())
                                         ses.headers = stream.session.get_option("http-headers")
                                         # ses.verify = False
-                                        zoomtv_auth = ses.get(zoomtv_securl).json()
+                                        zoomtv_auth = ses.get(zoomtv_securl, timeout=10).json()
 
                                 except:
                                     traceback.print_exc(file=sys.stdout)
@@ -991,9 +1000,9 @@ class MyHandler(BaseHTTPRequestHandler):
                     # self.wfile.close()
                     # self.handlerStop.set()
 
-            except STOP_EXCEPTIONS as e:
-                if not is_client_disconnect(e):
-                    xbmc.log('[StreamLink_Proxy] socket error %s' % str(e))
+            except STOP_EXCEPTIONS:
+                # Silent Exit: Don't log errors on stop to avoid "Playback Failed" messages
+                pass
 
             except Exception as err:
                 # traceback.print_exc(file=sys.stdout)
