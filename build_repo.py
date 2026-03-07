@@ -24,6 +24,7 @@ class GeradorDeRepositorio:
         # Caminho para o arquivo de checksum MD5
         self.caminho_addons_xml_md5 = os.path.join("repo", "addons.xml.md5")
 
+        self._compactar_addons()
         self._gerar_arquivo_addons()
         self._gerar_arquivo_md5()
         print("\nArquivos do repositório gerados com sucesso!")
@@ -57,6 +58,9 @@ class GeradorDeRepositorio:
                                 partes = info_zip.filename.split('/')
                                 if len(partes) == 2 and partes[1] == 'addon.xml':
                                     conteudo = addon_zip.read(info_zip.filename).decode('utf-8')
+                                    # Correção automática: Remove erro de digitação conhecido e garante XML limpo
+                                    conteudo = conteudo.replace('</requires>>', '</requires>')
+
                                     # Limpeza robusta: Encontra a tag <addon e pega tudo a partir dela
                                     # Isso garante que <?xml ... ?> e qualquer lixo anterior seja removido
                                     pos = conteudo.find('<addon')
@@ -83,6 +87,48 @@ class GeradorDeRepositorio:
         with open(self.caminho_addons_xml, "w", encoding="utf-8") as f:
             f.write(xml_final)
         print(f"\n'{self.caminho_addons_xml}' criado com {len(addons)} addon(s).")
+
+    def _compactar_addons(self):
+        """
+        Compacta as pastas dos addons em arquivos .zip, removendo os antigos.
+        """
+        if not os.path.exists(self.caminho_zips):
+            return
+
+        print("Verificando addons para compactação...")
+        for nome_addon in os.listdir(self.caminho_zips):
+            caminho_addon = os.path.join(self.caminho_zips, nome_addon)
+            
+            if os.path.isdir(caminho_addon) and "addon.xml" in os.listdir(caminho_addon):
+                try:
+                    with open(os.path.join(caminho_addon, "addon.xml"), "r", encoding="utf-8") as f:
+                        xml_content = f.read()
+                    
+                    id_match = re.search(r'<addon[^>]+id="([^"]+)"', xml_content)
+                    ver_match = re.search(r'<addon[^>]+version="([^"]+)"', xml_content)
+                    
+                    if id_match and ver_match:
+                        addon_id = id_match.group(1)
+                        version = ver_match.group(1)
+                        zip_name = f"{addon_id}-{version}.zip"
+                        zip_path = os.path.join(caminho_addon, zip_name)
+                        
+                        # Remove zips antigos e cria o novo
+                        for file in os.listdir(caminho_addon):
+                            if file.endswith(".zip") and file != zip_name:
+                                os.remove(os.path.join(caminho_addon, file))
+                                print(f"  - Removido zip antigo: {file}")
+                        
+                        print(f"  - Compactando {addon_id} v{version}...")
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                            for root, dirs, files in os.walk(caminho_addon):
+                                for file in files:
+                                    if file.endswith(".zip"): continue
+                                    file_path = os.path.join(root, file)
+                                    rel_path = os.path.relpath(file_path, self.caminho_zips)
+                                    zf.write(file_path, rel_path)
+                except Exception as e:
+                    print(f"ERRO ao compactar {nome_addon}: {e}")
 
     def _gerar_arquivo_md5(self):
         """
