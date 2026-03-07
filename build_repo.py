@@ -3,6 +3,7 @@ import os
 import hashlib
 import zipfile
 import re
+import subprocess
 
 class GeradorDeRepositorio:
     """
@@ -21,6 +22,10 @@ class GeradorDeRepositorio:
         self._compactar_addons()
         self._gerar_arquivo_addons()
         self._gerar_arquivo_md5()
+        
+        # Passo extra: Força o Git a reconhecer os arquivos
+        self._git_force_add()
+        
         print("\nArquivos do repositório gerados com sucesso!")
 
     def _gerar_arquivo_addons(self):
@@ -43,19 +48,18 @@ class GeradorDeRepositorio:
                             if info_zip.filename.endswith('addon.xml') and not info_zip.is_dir():
                                 partes = info_zip.filename.split('/')
                                 if len(partes) == 2 and partes[1] == 'addon.xml':
+                                    # Lê o arquivo usando utf-8
                                     conteudo = addon_zip.read(info_zip.filename).decode('utf-8')
                                     
                                     # 1. Corrige erro de digitação específico
                                     conteudo = conteudo.replace('</requires>>', '</requires>')
 
-                                    # 2. Limpeza Agressiva: Pega tudo a partir da primeira tag <addon
-                                    # Isso remove <?xml ...?> e qualquer comentário inicial
-                                    match = re.search(r'(<addon\s+[^>]+>)', conteudo)
-                                    if match:
-                                        start_pos = match.start()
-                                        conteudo = conteudo[start_pos:]
+                                    # 2. Limpeza Infalível: Encontra a primeira tag <addon e corta tudo antes dela
+                                    pos_addon = conteudo.find('<addon')
+                                    if pos_addon >= 0:
+                                        conteudo = conteudo[pos_addon:]
                                     else:
-                                        # Fallback: remove apenas o cabeçalho XML se não achar o padrão acima
+                                        # Fallback se não achar <addon (improvável)
                                         conteudo = re.sub(r'<\?xml.*?\?>', '', conteudo, flags=re.DOTALL).strip()
 
                                     addons.append(conteudo)
@@ -124,6 +128,16 @@ class GeradorDeRepositorio:
             print(f"MD5 gerado: {m}")
         except Exception as e:
             print(f"ERRO no MD5: {e}")
+
+    def _git_force_add(self):
+        """Força a adição dos arquivos da pasta repo ao Git, ignorando o .gitignore"""
+        try:
+            print("\nExecutando GIT ADD forçado na pasta repo...")
+            # Adiciona a pasta repo inteira, forçando a inclusão de zips ignorados
+            subprocess.check_call(['git', 'add', '--force', 'repo'], cwd=self.base_dir)
+            print("  [SUCESSO] Arquivos adicionados ao stage do Git.")
+        except Exception as e:
+            print(f"  [AVISO] Não foi possível executar git add: {e}")
 
 if __name__ == "__main__":
     GeradorDeRepositorio()

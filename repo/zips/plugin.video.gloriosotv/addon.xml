@@ -16,7 +16,8 @@
     <import addon="plugin.video.youtube" optional="true" />
     <import addon="script.module.slproxy" optional="true" />
 </requires>
-	<extension point="xbmc.python.pluginsource" library="default.py">
+	
+    <extension point="xbmc.python.pluginsource" library="default.py">
 		<provides>video</provides>
 	</extension>
 
