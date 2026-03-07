@@ -57,8 +57,13 @@ class GeradorDeRepositorio:
                                 partes = info_zip.filename.split('/')
                                 if len(partes) == 2 and partes[1] == 'addon.xml':
                                     conteudo = addon_zip.read(info_zip.filename).decode('utf-8')
-                                    # Remove a declaração XML (<?xml ... ?>) para evitar duplicação no addons.xml final
-                                    conteudo = re.sub(r'<\?xml.*?\?>', '', conteudo, flags=re.DOTALL).strip()
+                                    # Limpeza robusta: Encontra a tag <addon e pega tudo a partir dela
+                                    # Isso garante que <?xml ... ?> e qualquer lixo anterior seja removido
+                                    pos = conteudo.find('<addon')
+                                    if pos >= 0:
+                                        conteudo = conteudo[pos:]
+                                    else:
+                                        conteudo = re.sub(r'<\?xml.*?\?>', '', conteudo, flags=re.DOTALL).strip()
                                     addons.append(conteudo)
                                     print(f"  - Adicionado: {partes[0]} (de {file})")
                                     # Encontrou o addon.xml principal, vai para o próximo zip

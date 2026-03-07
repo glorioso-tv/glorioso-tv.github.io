@@ -21,6 +21,7 @@
     </assets>
   </extension>
 </addon>
+
 <addon id="repository.resolveurl" name="ResolveURL Repository" provider-name="gujal" version="1.0.0">
   <extension point="xbmc.addon.repository" name="ResolveURL Repository">
     <dir>
@@ -59,6 +60,7 @@
     </assets>
   </extension>
 </addon>
+
 <addon id="script.module.kodi-six"
        name="Kodi Six"
        version="0.1.3.1"
@@ -81,6 +83,7 @@
 - Fix non-UTF-8 byte string decoding in Python 2.</news>
   </extension>
 </addon>
+
 <addon id="script.module.cloudscraper" name="CloudScraper2" version="1.2.60" provider-name="venomous">
   <requires>
     <!-- <import addon="xbmc.python" version="3.0.0"/> -->
@@ -101,6 +104,7 @@
     <source></source>
   </extension>
 </addon>
+
 <addon id="plugin.video.f4mTester" version="3.0.3" name="f4mTester" provider-name="Shani">
     <requires>
         <import addon="script.module.simplejson" />
@@ -122,6 +126,7 @@
 		</assets>
     </extension>
 </addon>
+
 <addon id="repository.gloriosotv" name="[B][COLOR red]Repositório [COLOR orange]Glorioso Tv[/COLOR][/B]" version="1.0.0" provider-name="glorioso tv">
   <extension point="xbmc.addon.repository" name="glorioso-tv.github.io Add-on Repository">
     <dir>
@@ -143,6 +148,7 @@
     <source>https://github.com/glorioso-tv/glorioso-tv.github.io</source>
   </extension>
 </addon>
+
 <addon id="script.module.slproxy" name="SLProxy" version="0.5.3" provider-name="r1que">
   <requires>
     <!-- <import addon="xbmc.python" version="2.24.0"/> -->
@@ -165,6 +171,7 @@
     </news>
   </extension>
 </addon>
+
 <addon id="script.module.requests" name="requests" version="2.31.0" provider-name="Python Software Foundation">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -186,6 +193,7 @@
     </assets>
   </extension>
 </addon>
+
 <addon id="plugin.video.gloriosotv" version="1.1.0" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
 	<requires>
     <import addon="script.module.six" />
@@ -217,6 +225,7 @@
 		</assets>
 	</extension>
 </addon>
+
 <addon id="script.module.resolveurl" name="ResolveURL" version="5.1.140" provider-name="gujal">
     <requires>
         <!-- <import addon="xbmc.python" version="3.0.0" /> -->
@@ -245,6 +254,7 @@
         </assets>
     </extension>
 </addon>
+
 <addon id="script.module.urllib3" name="urllib3" version="2.2.3" provider-name="urllib3">
   <requires>
     <import addon="xbmc.python" version="3.0.0" />
@@ -262,6 +272,7 @@
     </assets>
   </extension>
 </addon>
+
 <addon id="script.module.urlresolver" name="URLResolver" version="7.0.00" provider-name="tvaddons">
     <requires>
         <!-- <import addon="xbmc.python" version="3.0.0" /> -->
@@ -289,6 +300,7 @@
         <website>https://www.tvaddons.co</website>
     </extension>
 </addon>
+
 <addon id="script.module.isodate" name="ISO8601 Library" version="0.6.0" provider-name="back-to">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -304,6 +316,7 @@
     <news></news>
   </extension>
 </addon>
+
 <addon id="script.kodi.core.control" name="Kodi Core Control" version="1.0" provider-name="Kodi Core Control">
     <requires>
         <import addon="script.module.six"/>
@@ -324,6 +337,7 @@
         </assets>
     </extension>
 </addon>
+
 <addon id="script.module.pycryptodome"
        name="PyCryptodome"
        version="3.20.0"
@@ -340,6 +354,7 @@
     <license>Public domain</license>
   </extension>
 </addon>
+
 <addon id="script.module.pycountry" name="ISO Country Library" version="22.3.5" provider-name="jairox">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -354,6 +369,7 @@
     <source>https://github.com/flyingcircusio/pycountry/tree/main/src/pycountry</source>
   </extension>
 </addon>
+
 <addon id="script.module.inputstreamhelper" name="InputStream Helper" version="0.8.5" provider-name="emilsvennesson, dagwieers, mediaminister, horstle">
   <requires>
     <!--py3 compliant-->
@@ -437,6 +453,7 @@ v0.5.9 (2022-03-22)
     </assets>
   </extension>
 </addon>
+
 <addon id="script.module.websocket" name="websocket-client" version="1.6.4" provider-name="liris">
   <requires>
     <import addon="xbmc.python" version="3.0.0" />
@@ -454,6 +471,7 @@ v0.5.9 (2022-03-22)
     </assets>
   </extension>
 </addon>
+
 <addon id="script.module.streamlink" name="Streamlink Library" version="8.2.1" provider-name="r1que">
   <requires>  
 	  <import addon="xbmc.python" version="3.0.0"/>
@@ -483,6 +501,7 @@ v0.5.9 (2022-03-22)
     </assets>
   </extension>
 </addon>
+
 <addon id="program.optiklean" name="OptiKlean" provider-name="DigiTalking" version="2.1.0">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
@@ -511,4 +530,5 @@ v0.5.9 (2022-03-22)
         </assets>
     </extension>
 </addon>
+
 </addons>
