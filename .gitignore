@@ -1,3 +1,9 @@
+# Ignorar arquivos de cache do Python
 __pycache__/
 *.pyc
-.DS_Store
+
+# Ignorar todos os arquivos .zip por padrão
+*.zip
+
+# Mas NÃO ignorar os arquivos .zip dentro da pasta do repositório
+!repo/zips/**/*.zip
