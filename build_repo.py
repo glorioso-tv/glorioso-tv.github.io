@@ -2,6 +2,7 @@
 import os
 import hashlib
 import zipfile
+import re
 
 class GeradorDeRepositorio:
     """
@@ -56,6 +57,8 @@ class GeradorDeRepositorio:
                                 partes = info_zip.filename.split('/')
                                 if len(partes) == 2 and partes[1] == 'addon.xml':
                                     conteudo = addon_zip.read(info_zip.filename).decode('utf-8')
+                                    # Remove a declaração XML (<?xml ... ?>) para evitar duplicação no addons.xml final
+                                    conteudo = re.sub(r'<\?xml.*?\?>', '', conteudo, flags=re.DOTALL).strip()
                                     addons.append(conteudo)
                                     print(f"  - Adicionado: {partes[0]} (de {file})")
                                     # Encontrou o addon.xml principal, vai para o próximo zip
