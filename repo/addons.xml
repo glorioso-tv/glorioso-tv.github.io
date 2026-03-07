@@ -210,7 +210,7 @@
     <import addon="script.module.youtube.dl" optional="true" />
     <import addon="plugin.video.youtube" optional="true" />
     <import addon="script.module.slproxy" optional="true" />
-</requires>>
+</requires>
 	<extension point="xbmc.python.pluginsource" library="default.py">
 		<provides>video</provides>
 	</extension>
@@ -225,7 +225,6 @@
 		</assets>
 	</extension>
 </addon>
-
 <addon id="script.module.resolveurl" name="ResolveURL" version="5.1.140" provider-name="gujal">
     <requires>
         <!-- <import addon="xbmc.python" version="3.0.0" /> -->
