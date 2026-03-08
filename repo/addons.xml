@@ -176,7 +176,7 @@
   </extension>
 </addon>
 
-<addon id="plugin.video.gloriosotv" version="1.1.0" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
+<addon id="plugin.video.gloriosotv" version="1.1.1" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
 	<requires>
     <import addon="script.module.six" />
     <import addon="script.module.kodi-six" />
@@ -193,8 +193,7 @@
     <import addon="plugin.video.youtube" optional="true" />
     <import addon="script.module.slproxy" optional="true" />
 </requires>
-	
-    <extension point="xbmc.python.pluginsource" library="default.py">
+	<extension point="xbmc.python.pluginsource" library="default.py">
 		<provides>video</provides>
 	</extension>
 
