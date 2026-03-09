@@ -1,3 +1,16 @@
+'''
+////////////////////////////////////////
+////             © 2026             ////
+//// GLORIOSO TV - DIREITOS RESERVADOS ////
+////////////////////////////////////////
+////   COPIAR É COISA DE MOLEQUE!   ////
+//// SE VOCÊ NÃO TEM CAPACIDADE PRA ////
+//// CRIAR ALGO PRÓPRIO, PELO MENOS ////
+////   RESPEITE O TRABALHO ALHEIO.  ////
+////    - TENHA ORIGINALIDADE -     ////
+////////////////////////////////////////
+'''
+
 import base64 as __a__
 def __𝓍(__𝓭__): 
     __𝓴__ = 23

@@ -109,6 +109,54 @@ class ProxyHandler:
             
         return re.sub(r'^(?![#\s]).+', replace, content, flags=re.MULTILINE)
 
+    def _tunnel_data(self, sock_from, sock_to, stop_event):
+        try:
+            while not stop_event.is_set():
+                try:
+                    data = sock_from.recv(8192)
+                    if not data:
+                        break
+                    sock_to.sendall(data)
+                except (socket.timeout, socket.error, OSError):
+                    break
+        finally:
+            stop_event.set()
+
+    def handle_connect(self, client_sock, target_host):
+        remote_sock = None
+        try:
+            try:
+                host, port_str = target_host.split(':')
+                port = int(port_str)
+            except ValueError:
+                client_sock.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                return
+
+            try:
+                remote_sock = socket.create_connection((host, port), timeout=10)
+            except Exception as e:
+                if xbmc: xbmc.log("[Proxy] CONNECT failed to {}: {}".format(target_host, e), xbmc.LOGERROR)
+                client_sock.sendall("HTTP/1.1 502 Bad Gateway\r\n\r\n".encode('utf-8'))
+                return
+            
+            client_sock.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+
+            stop_event = threading.Event()
+            
+            t1 = threading.Thread(target=self._tunnel_data, args=(client_sock, remote_sock, stop_event))
+            t2 = threading.Thread(target=self._tunnel_data, args=(remote_sock, client_sock, stop_event))
+            t1.daemon = True
+            t2.daemon = True
+            t1.start()
+            t2.start()
+            
+            stop_event.wait()
+
+        finally:
+            if remote_sock:
+                try: remote_sock.close()
+                except: pass
+
     def handle(self, client_sock, addr):
         try:
             client_sock.settimeout(15)
@@ -122,68 +170,72 @@ class ProxyHandler:
             if len(request_line) < 2: return
             method = request_line[0]
             path = request_line[1]
-            
-            # Pega o Host da requisição atual (pode ser 127.0.0.1 ou o IP da rede)
-            current_host = ""
+            version = request_line[2] if len(request_line) > 2 else "HTTP/1.0"
+
+            if method.upper() == 'CONNECT':
+                self.handle_connect(client_sock, path)
+                return
+
+            current_host, host_header = "", ""
             for line in lines:
                 if line.lower().startswith("host:"):
-                    current_host = line.split(":", 1)[1].strip()
+                    host_header = current_host = line.split(":", 1)[1].strip()
                     break
             if not current_host: current_host = "127.0.0.1:{}".format(PORT)
 
-            if path.startswith('http'):
-                target_url = path
-            else:
+            if path.startswith('/proxy?url='):
                 parsed = urlparse(path)
                 params = parse_qs(parsed.query)
                 target_url = unquote_plus(params.get('url', [''])[0])
+            elif path.startswith('http://') or path.startswith('https://'):
+                target_url = path
+            else:
+                if not host_header:
+                    client_sock.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                    return
+                target_url = "http://{}{}".format(host_header, path)
 
             if not target_url:
                 client_sock.sendall(b"HTTP/1.1 200 OK\r\n\r\nProxy Ativo")
                 return
 
-            if '\\u' in target_url:
-                try: target_url = target_url.encode('utf-8').decode('unicode-escape')
-                except: pass
-
             req_headers = self.xtream.update_headers()
-            
+            hop_by_hop_headers = ['host', 'connection', 'proxy-connection', 'keep-alive', 'te', 'trailers', 'transfer-encoding', 'upgrade']
             for line in lines[1:]:
                 if ": " in line:
                     k, v = line.split(": ", 1)
-                    if k.lower() not in ['host', 'connection', 'proxy-connection', 'user-agent']:
+                    if k.lower() not in hop_by_hop_headers:
                         req_headers[k] = v
             
             try:
                 r = self.session.request(method, target_url, headers=req_headers, stream=True, timeout=15, verify=False)
-                
-                if r.status_code in [200, 206]:
-                    c_type = r.headers.get("content-type", "").lower()
-                    
-                    # Verificação unificada para m3u8 e m3u
-                    if "mpegurl" in c_type or ".m3u8" in target_url.lower() or ".m3u" in target_url.lower():
-                        rewritten = self.rewrite_m3u8(r.text, target_url.rsplit('/', 1)[0], current_host)
-                        header = "HTTP/1.1 200 OK\r\nContent-Type: application/x-mpegURL\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
-                        client_sock.sendall(header.encode('utf-8') + rewritten.encode('utf-8'))
-                    
-                    else:
-                        header = "HTTP/1.1 {} OK\r\n".format(r.status_code)
-                        header += "Content-Type: {}\r\n".format(r.headers.get('Content-Type', 'application/octet-stream'))
-                        header += "Access-Control-Allow-Origin: *\r\n\r\n"
-                        client_sock.sendall(header.encode('utf-8'))
-                        for chunk in r.iter_content(chunk_size=262144):
-                            if chunk: client_sock.sendall(chunk)
+                c_type = r.headers.get("content-type", "").lower()
+                is_m3u = "mpegurl" in c_type or ".m3u8" in target_url.lower() or ".m3u" in target_url.lower()
+
+                if r.status_code in [200, 206] and is_m3u:
+                    rewritten = self.rewrite_m3u8(r.text, target_url.rsplit('/', 1)[0], current_host)
+                    response_body = rewritten.encode('utf-8')
+                    response_headers = "{} 200 OK\r\nContent-Type: application/x-mpegURL\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n".format(version, len(response_body))
+                    client_sock.sendall(response_headers.encode('utf-8'))
+                    client_sock.sendall(response_body)
                 else:
-                    reason = r.reason or "Upstream Error"
-                    header = "HTTP/1.1 {} {}\r\n".format(r.status_code, reason)
-                    header += "Content-Type: {}\r\n".format(r.headers.get('Content-Type', 'text/plain; charset=utf-8'))
-                    header += "Access-Control-Allow-Origin: *\r\n\r\n"
-                    client_sock.sendall(header.encode('utf-8'))
-                    if r.content:
-                        client_sock.sendall(r.content)
-                return
-            except Exception: pass
-        except Exception: pass
+                    response_line = "{} {} {}\r\n".format(version, r.status_code, r.reason or '')
+                    client_sock.sendall(response_line.encode('utf-8'))
+                    for k, v in r.headers.items():
+                        if k.lower() not in hop_by_hop_headers and k.lower() != 'content-encoding':
+                            client_sock.sendall("{}: {}\r\n".format(k, v).encode('utf-8'))
+                    client_sock.sendall(b"Access-Control-Allow-Origin: *\r\n\r\n")
+                    if method.upper() != 'HEAD':
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk: client_sock.sendall(chunk)
+            except RequestException as e:
+                if xbmc: xbmc.log("[Proxy] Request failed for {}: {}".format(target_url, e), xbmc.LOGERROR)
+                client_sock.sendall("{} 502 Bad Gateway\r\n\r\n".format(version).encode('utf-8'))
+            except Exception as e:
+                if xbmc: xbmc.log("[Proxy] Generic error handling {}: {}".format(target_url, e), xbmc.LOGERROR)
+                client_sock.sendall("{} 500 Internal Server Error\r\n\r\n".format(version).encode('utf-8'))
+        except Exception:
+            pass
         finally:
             try: client_sock.close()
             except: pass
