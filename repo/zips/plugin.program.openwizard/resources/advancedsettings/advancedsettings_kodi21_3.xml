@@ -1,9 +1,38 @@
-<advancedsettings>
-    <network>
-        <curlclienttimeout>20</curlclienttimeout>
-        <curllowspeedtime>20</curllowspeedtime>
-        <curlretries>2</curlretries>
-        <disablehttp2>false</disablehttp2>
-        <disableipv6>false</disableipv6>
-    </network>
+<advancedsettings version="1.0">
+  <network>
+    <curlclienttimeout>10</curlclienttimeout>
+    <curllowspeedtime>20</curllowspeedtime>
+    <curlretries>2</curlretries>
+    <disablehttp2>false</disablehttp2>
+    <disableipv6>true</disableipv6>
+  </network>
+
+<pvr>
+  <timecorrection>0</timecorrection>  
+  <infotoggleinterval>3000</infotoggleinterval>  
+  <channeliconsautoscan>true</channeliconsautoscan>  
+  <numericchannelswitchtimeout>1000</numericchannelswitchtimeout>  
+</pvr>
+
+<epg>
+  <updatecheckinterval>300</updatecheckinterval>  
+  <updateemptytagsinterval>60</updateemptytagsinterval>  
+  <cleanupinterval>900</cleanupinterval>  
+  <activetagcheckinterval>60</activetagcheckinterval>  
+  <retryinterruptedupdateinterval>60</retryinterruptedupdateinterval>  
+  <displayupdatepopup>true</displayupdatepopup>  
+</epg>
+
+<video>
+  <adjustrefreshrate>
+    <fallback>
+      <refresh>50.0</refresh>
+    </fallback>
+  </adjustrefreshrate>
+  <fpsdetect>1</fpsdetect>
+  <latency>
+    <delay>0</delay>
+  </latency>
+</video>
+
 </advancedsettings>
