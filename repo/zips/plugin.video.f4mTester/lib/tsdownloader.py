@@ -490,55 +490,98 @@ class ProxyHandler(XtreamCodes):
                         
 
     def handle_request(self):
-        global HEADERS_BASE
-        global STOP_SERVER    
+        global URL_BASE, LAST_URL, HEADERS_BASE, STOP_SERVER, CACHE_CHUNKS, CACHE_M3U8, DELAY_MODE
+        global RESOLUTION, LAST_M3U8, PARAMS, URL_BASE_PARAMS, CHECK_URL_PARAMS, URL_BASE_STALKER, TOKEN_STALKER       
+        
         request_data = self.conn.recv(1024)
         self.parse_request(request_data)
         self.parse_request2(request_data)
-        log('TS req %s %s' % (self.request_method, self.path))
+        
         if self.request_method == 'HEAD':
-            self.send_response(200) # envia status 200 sempre
+            self.send_response(200)
             pass
         elif self.path == "/stop":
-            self.send_response(200) # envia status 200 sempre
+            self.send_response(200)
             STOP_SERVER = True
-            reset_headers_base()
+            URL_BASE = ''; LAST_URL = ''; HEADERS_BASE = {}; CACHE_CHUNKS = []; CACHE_M3U8 = ''
+            DELAY_MODE = True; LAST_M3U8 = ''; RESOLUTION = True; PARAMS = ''
+            CHECK_URL_PARAMS = True; URL_BASE_STALKER = ''; TOKEN_STALKER = ''           
             self.server.stop_server()
         elif self.path == "/reset":
-            self.send_response(200) # envia status 200 sempre
-            reset_headers_base()
+            self.send_response(200)
+            URL_BASE = ''; LAST_URL = ''; HEADERS_BASE = {}; CACHE_CHUNKS = []; CACHE_M3U8 = ''
+            DELAY_MODE = True; RESOLUTION = True; LAST_M3U8 = ''; PARAMS = ''
+            URL_BASE_PARAMS = ''; CHECK_URL_PARAMS = True; URL_BASE_STALKER = ''; TOKEN_STALKER = ''
         elif self.path == '/check':
-            self.send_response(200) # envia status 200 sempre
+            self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
             self.conn.sendall(b"Hello, world!")
         else:
             url_path = unquote_plus(self.path)
-            url_path = url_path.replace('VIDEO_TS.IFO', '')
             self.set_headers(url_path)
             url_parts = urlparse(url_path)
             query_params = parse_qs(url_parts.query)
-            if 'url' in query_params and query_params['url']:
-                url = query_params['url'][0]
+            
+            if 'url' in query_params:
+                url = url_path.split('url=')[1]
                 try:
                     url = base64.b64decode(url).decode('utf-8')
-                except Exception:
+                except:
                     pass
-                url = url.split('|')[0]
-                url = url.split('%7C')[0]
+                try:
+                    url = url.split('|')[0]
+                except:
+                    pass
+                try:
+                    url = url.split('%7C')[0]
+                except:
+                    pass
+
+                if re.search(r'/\w+/\w+/\d+$', url):
+                    parsed_url = urlparse(url)
+                    host_part = '%s://%s' % (parsed_url.scheme, parsed_url.netloc)
+                    url = host_part + '/live' + parsed_url.path + '.ts'
+                
+                if hasattr(self, 'convert_to_m3u8'):
+                    url = self.convert_to_m3u8(url)
             else:
                 url = url_path
-            # XTREAM CODES
-            if '.mp4' in url and not '.m3u8' in url and not '.ts' in url:
-                self.stream_video(url, request_data)                    
-            elif '.ts' in url:
-                self.send_response(200) # envia status 200 sempre
-                self.send_ts(self,url)
-            elif not any(ext in url for ext in ('.m3u8', '.ts', '.mp3', '.rmv', '.rmvb')):
-                # default: tratar como TS
+                
+            if '.m3u8' in url and '?' in url and not 'extension' in url:
+                if not PARAMS:
+                    try:
+                        PARAMS = '?' + url.split('?')[1]
+                    except:
+                        pass
+            
+            if '/hl' in url and '.ts' in url:
                 self.send_response(200)
-                self.send_ts(self, url)
-        self.conn.close()  # Fechar o socket de conexão após enviar a resposta
+                self.send_ts(self,url)            
+            elif '/hl' in url and not '.ts' in url:
+                self.send_response(200)
+                self.send_ts(self,url)            
+            elif 'm3u8' in url and not 'extension' in url and '/play/' in url and not '.m3u8' in url:
+                self.send_response(200)
+                self.send_m3u8_stalker(self,url)               
+            elif 'm3u8' in url and 'extension' in url:
+                self.send_response(200)
+            elif '.ts' in url and URL_BASE_STALKER or 'hls' in url and URL_BASE_STALKER:
+                self.send_response(200)
+                self.send_ts_stalker(self,url)
+            elif '.mp4' in url and not '.m3u8' in url and not '.ts' in url:
+                self.stream_video(url, request_data)                    
+            elif '.m3u8' in url:
+                self.send_response(200)
+                self.send_m3u8(self,url)
+            elif '.ts' in url:
+                self.send_response(200)
+                self.send_ts(self,url)
+            elif '/live/' in url and not '.ts' in url and not '.m3u8' in url:
+                self.send_response(200)
+                self.send_ts(self, url + '.ts')
+
+        self.conn.close()
 
 def monitor():
     try:

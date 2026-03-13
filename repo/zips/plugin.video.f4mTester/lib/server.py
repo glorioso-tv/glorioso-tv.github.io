@@ -316,13 +316,19 @@ class handler(SimpleHTTPRequestHandler):
     def append_headers(self,headers):
         return '|%s' % '&'.join(['%s=%s' % (key, headers[key]) for key in headers])    
     
-    def convert_to_m3u8(self,url):
+    def convert_to_m3u8(self, url):
         if '|' in url:
             url = url.split('|')[0]
         elif '&h123' in url:
             url = url.split('&h123')[0]
-        # if '&' in url:
-        #     url = url.split('&')[0]
+
+        if re.search(r'/\w+/\w+/\d+$', url):
+            parsed_url = urlparse(url)
+            host_part = '%s://%s' % (parsed_url.scheme, parsed_url.netloc)
+            path_part = parsed_url.path
+            url = host_part + '/live' + path_part + '.m3u8'
+            return url
+
         if not '.m3u8' in url and not '/hl' in url and int(url.count(":")) == 2 and int(url.count("/")) > 4:
             parsed_url = urlparse(url)
             try:
