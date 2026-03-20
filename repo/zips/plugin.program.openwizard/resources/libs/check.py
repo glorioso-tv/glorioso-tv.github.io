@@ -62,7 +62,8 @@ def check_build(name, ret):
 
     link = response.text.replace('\n', '').replace('\r', '').replace('\t', '')\
         .replace('gui=""', 'gui="http://"').replace('theme=""', 'theme="http://"')
-    match = re.compile('name="%s".+?ersion="(.+?)".+?rl="(.+?)".+?inor="(.+?)".+?ui="(.+?)".+?odi="(.+?)".+?heme="(.+?)".+?con="(.+?)".+?anart="(.+?)".+?review="(.+?)".+?dult="(.+?)".+?nfo="(.+?)".+?escription="(.+?)"' % name.replace('[', '\[').replace(']', '\]')).findall(link)
+    escaped_name = re.escape(name)
+    match = re.compile(r'name="%s".+?ersion="(.+?)".+?rl="(.+?)".+?inor="(.+?)".+?ui="(.+?)".+?odi="(.+?)".+?heme="(.+?)".+?con="(.+?)".+?anart="(.+?)".+?review="(.+?)".+?dult="(.+?)".+?nfo="(.+?)".+?escription="(.+?)"' % escaped_name).findall(link)
     if len(match) > 0:
         for version, url, minor, gui, kodi, theme, icon, fanart, preview, adult, info, description in match:
             if ret == 'version':
@@ -117,7 +118,8 @@ def check_theme(name, theme, ret):
         return False
 
     link = response.text.replace('\n', '').replace('\r', '').replace('\t', '')
-    match = re.compile('name="{0}".+?rl="(.+?)".+?con="(.+?)".+?anart="(.+?)".+?dult=(.+?).+?escription="(.+?)"'.format(theme.replace('[', '\[').replace(']', '\]'))).findall(link)
+    escaped_theme = re.escape(theme)
+    match = re.compile(r'name="{0}".+?rl="(.+?)".+?con="(.+?)".+?anart="(.+?)".+?dult=(.+?).+?escription="(.+?)"'.format(escaped_theme)).findall(link)
     if len(match) > 0:
         for url, icon, fanart, adult, description in match:
             if ret == 'url':
@@ -167,7 +169,8 @@ def check_build_update():
         return
 
     link = response.text.replace('\n', '').replace('\r', '').replace('\t', '')
-    match = re.compile('name="%s".+?ersion="(.+?)".+?con="(.+?)".+?anart="(.+?)"' % CONFIG.BUILDNAME.replace('[', '\[').replace(']', '\]')).findall(link)
+    escaped_build = re.escape(CONFIG.BUILDNAME)
+    match = re.compile(r'name="%s".+?ersion="(.+?)".+?con="(.+?)".+?anart="(.+?)"' % escaped_build).findall(link)
     if len(match) > 0:
         version = match[0][0]
         icon = match[0][1]

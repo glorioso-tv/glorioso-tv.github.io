@@ -48,11 +48,14 @@ else:
 try:  # Python 3
     from urllib.parse import quote
     from urllib.parse import urlparse
-    from html.parser import HTMLParser
+    from html import unescape as html_unescape
 except ImportError:  # Python 2
     from urllib import quote
     from urlparse import urlparse
     import HTMLParser
+
+    def html_unescape(value):
+        return HTMLParser.HTMLParser().unescape(value)
 
 from contextlib import contextmanager
 
@@ -289,7 +292,7 @@ def parse_dom(html, name=u"", attrs={}, ret=False):
                 lst = lst2
                 lst2 = []
             else:
-                test = range(len(lst))
+                test = list(range(len(lst)))
                 test.reverse()
                 for i in test:
                     if not lst[i] in lst2:
@@ -370,11 +373,17 @@ def get_date(days=0, formatted=False):
 
 def basecode(text, encode=True):
     import base64
+
     if encode:
-        msg = base64.encodestring(text)
-    else:
-        msg = base64.decodestring(text)
-    return msg
+        if isinstance(text, str):
+            text = text.encode('utf-8')
+        msg = base64.b64encode(text)
+        return msg.decode('utf-8') if isinstance(msg, bytes) else msg
+
+    if isinstance(text, str):
+        text = text.encode('utf-8')
+    msg = base64.b64decode(text)
+    return msg.decode('utf-8', 'ignore') if isinstance(msg, bytes) else msg
 
 
 def platform():
@@ -399,6 +408,12 @@ def platform():
 def kodi_version():
     if 19.0 <= CONFIG.KODIV <= 19.9:
         vername = 'Matrix'
+    elif 20.0 <= CONFIG.KODIV <= 20.9:
+        vername = 'Nexus'
+    elif 21.0 <= CONFIG.KODIV <= 21.9:
+        vername = 'Omega'
+    elif 22.0 <= CONFIG.KODIV <= 22.9:
+        vername = 'Piers'
     else:
         vername = "Unknown"
     return vername
@@ -526,7 +541,7 @@ def data_type(str):
 
 def replace_html_codes(txt):
     txt = re.sub("(&#[0-9]+)([^;^0-9]+)", "\\1;\\2", txt)
-    txt = HTMLParser.HTMLParser().unescape(txt)
+    txt = html_unescape(txt)
     txt = txt.replace("&quot;", "\"")
     txt = txt.replace("&amp;", "&")
     return txt

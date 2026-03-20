@@ -1,0 +1,17 @@
+<advancedsettings version="1.0">
+    <cache>
+        <buffermode>1</buffermode>
+        <memorysize>157286400</memorysize>
+        <readfactor>8.0</readfactor>
+    </cache>
+    <network>
+        <curlclienttimeout>10</curlclienttimeout>
+        <curllowspeedtime>20</curllowspeedtime>
+        <curlretries>2</curlretries>
+        <disableipv6>false</disableipv6>
+        <disablehttp2>false</disablehttp2>
+        <nfstimeout>30</nfstimeout>
+        <curlkeepaliveinterval>30</curlkeepaliveinterval>
+        <nfsretries>0</nfsretries>
+    </network>
+</advancedsettings>

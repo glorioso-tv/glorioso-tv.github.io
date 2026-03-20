@@ -1,15 +1,13 @@
-Templates de advancedsettings.xml para Kodi 21.x (Omega).
+Templates de advancedsettings.xml baseados na wiki oficial do Kodi.
 
-Tags removidas no Kodi v21:
-- cache / memorysize / buffermode / readfactor / chunksize
-- Essas opcoes foram movidas para a GUI de configuracoes do Kodi.
+Perfis mantidos:
+- advancedsettings_kodi21_3.xml
+  Somente network, porque as tags de cache foram removidas no Kodi v21.
 
-Arquivos:
-- advancedsettings_kodi20_21.xml          (network recomendado)
-- advancedsettings_minimal_kodi20_21.xml  (network minimo)
-- advancedsettings_kodi21_3.xml           (network recomendado para Kodi 21.3)
-- advancedsettings_kodi20_or_older.xml    (cache + network para Kodi antigo)
+- advancedsettings_kodi18.9E20.xml
+  Cache + network para Kodi 18.9, 19 e 20.
 
-Uso:
-1) Copie o conteúdo para userdata/advancedsettings.xml do Kodi.
-2) Reinicie o Kodi.
+Observacoes:
+- O arquivo advancedsettings.xml deve ficar em userdata/advancedsettings.xml.
+- Kodi so le esse arquivo na inicializacao.
+- Todas as tags XML devem ser minusculas.

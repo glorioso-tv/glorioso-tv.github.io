@@ -32,104 +32,15 @@ from resources.libs.common.config import CONFIG
 ADVANCED_DIR = os.path.join(CONFIG.PLUGIN, 'resources', 'advancedsettings')
 ADVANCED_FILE = os.path.join(CONFIG.USERDATA, 'advancedsettings.xml')
 KODI21_TEMPLATE = os.path.join(ADVANCED_DIR, 'advancedsettings_kodi21_3.xml')
-LEGACY_TEMPLATE = os.path.join(ADVANCED_DIR, 'advancedsettings_kodi20_or_older.xml')
-
-
-def _safe_ram_mb():
-    try:
-        return int(CONFIG.RAM)
-    except Exception:
-        return 2048
-
-
-def _device_tier():
-    ram_mb = _safe_ram_mb()
-    is_android = xbmc.getCondVisibility('System.Platform.Android')
-    is_windows = xbmc.getCondVisibility('System.Platform.Windows')
-    is_linux = xbmc.getCondVisibility('System.Platform.Linux')
-    is_osx = xbmc.getCondVisibility('System.Platform.OSX')
-
-    # Heuristica pragmatica para diferenciar TV Box fraca vs hardware forte.
-    if is_android and ram_mb <= 3072:
-        return 'fraco'
-    if ram_mb <= 2048:
-        return 'fraco'
-    if ram_mb <= 4096:
-        return 'medio'
-    if is_windows or is_linux or is_osx:
-        return 'forte'
-    return 'medio'
-
-
-def _network_values(tier):
-    if tier == 'fraco':
-        return {
-            'curlclienttimeout': 20,
-            'curllowspeedtime': 30,
-            'curlretries': 2,
-            'disablehttp2': 'true',
-            'disableipv6': 'true'
-        }
-    if tier == 'forte':
-        return {
-            'curlclienttimeout': 15,
-            'curllowspeedtime': 15,
-            'curlretries': 2,
-            'disablehttp2': 'false',
-            'disableipv6': 'false'
-        }
-    return {
-        'curlclienttimeout': 20,
-        'curllowspeedtime': 20,
-        'curlretries': 2,
-        'disablehttp2': 'false',
-        'disableipv6': 'false'
-    }
-
-
-def _legacy_cache_values(tier):
-    if tier == 'fraco':
-        return {'memorysize': 104857600, 'readfactor': 4.0}
-    if tier == 'forte':
-        return {'memorysize': 262144000, 'readfactor': 8.0}
-    return {'memorysize': 157286400, 'readfactor': 6.0}
-
-
-def _build_best_content():
-    tier = _device_tier()
-    network = _network_values(tier)
-
-    lines = ['<advancedsettings>']
-    if CONFIG.KODIV < 21:
-        cache = _legacy_cache_values(tier)
-        lines.extend([
-            '    <cache>',
-            '        <buffermode>1</buffermode>',
-            '        <memorysize>{0}</memorysize>'.format(cache['memorysize']),
-            '        <readfactor>{0}</readfactor>'.format(cache['readfactor']),
-            '    </cache>',
-            ''
-        ])
-    lines.extend([
-        '    <network>',
-        '        <curlclienttimeout>{0}</curlclienttimeout>'.format(network['curlclienttimeout']),
-        '        <curllowspeedtime>{0}</curllowspeedtime>'.format(network['curllowspeedtime']),
-        '        <curlretries>{0}</curlretries>'.format(network['curlretries']),
-        '        <disablehttp2>{0}</disablehttp2>'.format(network['disablehttp2']),
-        '        <disableipv6>{0}</disableipv6>'.format(network['disableipv6']),
-        '    </network>',
-        '</advancedsettings>'
-    ])
-    return '\n'.join(lines) + '\n', tier
+LEGACY_TEMPLATE = os.path.join(ADVANCED_DIR, 'advancedsettings_kodi18.9E20.xml')
 
 
 def _profile_info(profile):
     if profile == 'kodi21':
-        return KODI21_TEMPLATE, 'Kodi 21.3+'
+        return KODI21_TEMPLATE, 'Kodi 21.3'
     if profile == 'legacy':
-        return LEGACY_TEMPLATE, 'Kodi 20 ou anterior'
-    return None, 'Automatico Inteligente'
-
+        return LEGACY_TEMPLATE, 'Kodi 18.9 e 20'
+    return None, None
 
 def _write_template(src):
     if not os.path.exists(src):
@@ -151,34 +62,15 @@ def _write_template(src):
 def menu():
     exists = os.path.exists(ADVANCED_FILE)
     status = '[COLOR springgreen]Instalado[/COLOR]' if exists else '[COLOR red]Nao instalado[/COLOR]'
-    tier = _device_tier()
-    tier_label = tier.capitalize()
     directory.add_file('advancedsettings.xml: {0}'.format(status), icon=CONFIG.ICONMAINT, themeit=CONFIG.THEME3)
-    directory.add_file('Gerar Melhor Automatico ({0})'.format(tier_label),
-                       {'mode': 'advancedset', 'name': 'auto'}, icon=CONFIG.ICONMAINT, themeit=CONFIG.THEME3)
-    directory.add_file('Configurar para Kodi 21.3+',
+    directory.add_file('advancedsettings_kodi21_3.xml',
                        {'mode': 'advancedset', 'name': 'kodi21'}, icon=CONFIG.ICONMAINT, themeit=CONFIG.THEME3)
-    directory.add_file('Configurar para Kodi 20 ou anterior',
+    directory.add_file('advancedsettings_kodi18.9E20.xml',
                        {'mode': 'advancedset', 'name': 'legacy'}, icon=CONFIG.ICONMAINT, themeit=CONFIG.THEME3)
-    directory.add_file('Remover advancedsettings.xml',
-                       {'mode': 'advancedset', 'name': 'remove'}, icon=CONFIG.ICONMAINT, themeit=CONFIG.THEME3)
 
 
-def apply(profile='auto'):
+def apply(profile='kodi21'):
     dialog = xbmcgui.Dialog()
-
-    if profile == 'remove':
-        if not os.path.exists(ADVANCED_FILE):
-            logging.log_notify(CONFIG.ADDONTITLE, '[COLOR {0}]advancedsettings.xml nao existe[/COLOR]'.format(CONFIG.COLOR2))
-            return
-
-        if dialog.yesno(CONFIG.ADDONTITLE,
-                        '[COLOR {0}]Deseja remover o advancedsettings.xml atual?[/COLOR]'.format(CONFIG.COLOR2),
-                        yeslabel='[B][COLOR springgreen]Remover[/COLOR][/B]',
-                        nolabel='[B][COLOR red]Cancelar[/COLOR][/B]'):
-            tools.remove_file(ADVANCED_FILE)
-            logging.log_notify(CONFIG.ADDONTITLE, '[COLOR {0}]advancedsettings.xml removido[/COLOR]'.format(CONFIG.COLOR2))
-        return
 
     template, label = _profile_info(profile)
     overwrite = True
@@ -190,19 +82,12 @@ def apply(profile='auto'):
     if not overwrite:
         return
 
-    if template:
-        ok = _write_template(template)
-        result_label = label
-    else:
-        content, tier = _build_best_content()
-        try:
-            tools.write_to_file(ADVANCED_FILE, content)
-            ok = True
-            result_label = 'Automatico Inteligente ({0})'.format(tier)
-        except Exception as e:
-            logging.log('[AdvancedSettings] Falha ao gerar arquivo: {0}'.format(e))
-            ok = False
-            result_label = label
+    if not template:
+        dialog.ok(CONFIG.ADDONTITLE, '[COLOR {0}]Perfil de advancedsettings invalido[/COLOR]'.format(CONFIG.COLOR2))
+        return
+
+    ok = _write_template(template)
+    result_label = label
 
     if ok:
         logging.log_notify(CONFIG.ADDONTITLE, '[COLOR {0}]advancedsettings aplicado: {1}[/COLOR]'.format(CONFIG.COLOR2, result_label))

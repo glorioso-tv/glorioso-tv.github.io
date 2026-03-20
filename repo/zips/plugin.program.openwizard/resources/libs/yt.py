@@ -47,10 +47,22 @@ import xbmc
 import xbmcgui
 
 import re
-import urllib2
-import urllib
-import cgi
-import HTMLParser
+
+try:
+    from urllib.request import Request, urlopen
+    from urllib.parse import parse_qs, unquote
+    from html import unescape as html_unescape
+except ImportError:
+    import urllib2
+    from cgi import parse_qs
+    from urllib import unquote
+    import HTMLParser
+
+    Request = urllib2.Request
+    urlopen = urllib2.urlopen
+
+    def html_unescape(value):
+        return HTMLParser.HTMLParser().unescape(value)
 
 try:
     import simplejson as json
@@ -87,9 +99,9 @@ def PlayVideo(id, forcePlayer=False):
     title = video['title']
     image = video['thumbnail']
 
-    liz = xbmcgui.ListItem(title, iconImage=image, thumbnailImage=image)
-
-    liz.setInfo( type="Video", infoLabels={ "Title": title} )
+    liz = xbmcgui.ListItem(label=title, path=url)
+    liz.setArt({'icon': image, 'thumb': image})
+    liz.setInfo(type="Video", infoLabels={"Title": title})
 
     if forcePlayer or len(sys.argv) < 2 or int(sys.argv[1]) == -1:
         import xbmc
@@ -158,42 +170,42 @@ def Scrape(html):
 
     flashvars = ExtractFlashVars(html)
 
-    if not flashvars.has_key(u"url_encoded_fmt_stream_map"):
+    if u"url_encoded_fmt_stream_map" not in flashvars:
         return video, links
 
-    if flashvars.has_key(u"ttsurl"):
+    if u"ttsurl" in flashvars:
         video[u"ttsurl"] = flashvars[u"ttsurl"]
 
-    if flashvars.has_key(u"hlsvp"):                               
+    if u"hlsvp" in flashvars:                               
         video[u"hlsvp"] = flashvars[u"hlsvp"]    
 
     for url_desc in flashvars[u"url_encoded_fmt_stream_map"].split(u","):
-        url_desc_map = cgi.parse_qs(url_desc)
+        url_desc_map = parse_qs(url_desc)
         
-        if not (url_desc_map.has_key(u"url") or url_desc_map.has_key(u"stream")):
+        if not (u"url" in url_desc_map or u"stream" in url_desc_map):
             continue
 
         key = int(url_desc_map[u"itag"][0])
         url = u""
         
-        if url_desc_map.has_key(u"url"):
-            url = urllib.unquote(url_desc_map[u"url"][0])
+        if u"url" in url_desc_map:
+            url = unquote(url_desc_map[u"url"][0])
         
-        elif url_desc_map.has_key(u"conn") and url_desc_map.has_key(u"stream"):
-            url = urllib.unquote(url_desc_map[u"conn"][0])
+        elif u"conn" in url_desc_map and u"stream" in url_desc_map:
+            url = unquote(url_desc_map[u"conn"][0])
             
             if url.rfind("/") < len(url) -1:
                 url = url + "/"
             
-            url = url + urllib.unquote(url_desc_map[u"stream"][0])
+            url = url + unquote(url_desc_map[u"stream"][0])
         
-        elif url_desc_map.has_key(u"stream") and not url_desc_map.has_key(u"conn"):
-            url = urllib.unquote(url_desc_map[u"stream"][0])
+        elif u"stream" in url_desc_map and u"conn" not in url_desc_map:
+            url = unquote(url_desc_map[u"stream"][0])
 
-        if url_desc_map.has_key(u"sig"):
+        if u"sig" in url_desc_map:
             url = url + u"&signature=" + url_desc_map[u"sig"][0]
         
-        elif url_desc_map.has_key(u"s"):
+        elif u"s" in url_desc_map:
             sig = url_desc_map[u"s"][0]
             #url = url + u"&signature=" + DecryptSignature(sig)
            
@@ -270,18 +282,18 @@ def ExtractFlashVars(data, assets=False):
 
 
 def FetchPage(url):
-    req = urllib2.Request(url)
+    req = Request(url)
     req.add_header('User-Agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.9.0.3) Gecko/2008092417 Firefox/3.0.3')
     req.add_header('Referer',    'http://www.youtube.com/')
 
-    return urllib2.urlopen(req).read().decode("utf-8")
+    return urlopen(req).read().decode("utf-8")
 
 
 def replaceHTMLCodes(txt):
     # Fix missing ; in &#<number>;
     txt = re.sub("(&#[0-9]+)([^;^0-9]+)", "\\1;\\2", txt)
 
-    txt = HTMLParser.HTMLParser().unescape(txt)
+    txt = html_unescape(txt)
     txt = txt.replace("&amp;", "&")
     return txt
 
@@ -323,31 +335,31 @@ def _jsToPy(jsFunBody):
     
     for i in range(len(lines)):
         # a.split("") -> list(a)
-        match = re.search('(\w+?)\.split\(""\)', lines[i])
+        match = re.search(r'(\w+?)\.split\(""\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), 'list(' + match.group(1)  + ')')
         # a.length -> len(a)
         
-        match = re.search('(\w+?)\.length', lines[i])
+        match = re.search(r'(\w+?)\.length', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), 'len(' + match.group(1)  + ')')
         # a.slice(3) -> a[3:]
         
-        match = re.search('(\w+?)\.slice\((\w+?)\)', lines[i])
+        match = re.search(r'(\w+?)\.slice\((\w+?)\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), match.group(1) + ('[%s:]' % match.group(2)) )
         # a.join("") -> "".join(a)
         
-        match = re.search('(\w+?)\.join\(("[^"]*?")\)', lines[i])
+        match = re.search(r'(\w+?)\.join\(("[^"]*?")\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), match.group(2) + '.join(' + match.group(1) + ')' )
         # a.splice(b,c) -> del a[b:c]
         
-        match = re.search('(\w+?)\.splice\(([^,]+),([^)]+)\)', lines[i])
+        match = re.search(r'(\w+?)\.splice\(([^,]+),([^)]+)\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), 'del ' + match.group(1) + '[' + match.group(2) + ':' + match.group(3) + ']' )
@@ -364,25 +376,25 @@ def _jsToPy1(jsFunBody):
     lines = pythonFunBody.split('\n')
     for i in range(len(lines)):
         # a.split("") -> list(a)
-        match = re.search('(\w+?)\.split\(""\)', lines[i])
+        match = re.search(r'(\w+?)\.split\(""\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), 'list(' + match.group(1)  + ')')
         # a.length -> len(a)
         
-        match = re.search('(\w+?)\.length', lines[i])
+        match = re.search(r'(\w+?)\.length', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), 'len(' + match.group(1)  + ')')
         # a.slice(3) -> a[3:]
         
-        match = re.search('(\w+?)\.slice\(([0-9]+?)\)', lines[i])
+        match = re.search(r'(\w+?)\.slice\(([0-9]+?)\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), match.group(1) + ('[%s:]' % match.group(2)) )
         # a.join("") -> "".join(a)
         
-        match = re.search('(\w+?)\.join\(("[^"]*?")\)', lines[i])
+        match = re.search(r'(\w+?)\.join\(("[^"]*?")\)', lines[i])
         
         if match:
             lines[i] = lines[i].replace( match.group(0), match.group(2) + '.join(' + match.group(1) + ')' )
@@ -392,7 +404,7 @@ def _jsToPy1(jsFunBody):
 def _getLocalFunBody(funName):
     # get function body 
     funName = funName.replace('$', '\\$')
-    match = re.search('(function %s\([^)]+?\){[^}]+?})' % funName, playerData)
+    match = re.search(r'(function %s\([^)]+?\){[^}]+?})' % funName, playerData)
     
     if match:
         return match.group(1)
@@ -400,7 +412,7 @@ def _getLocalFunBody(funName):
     return ''
 
 def _getAllLocalSubFunNames(mainFunBody):
-    match = re.compile('[ =(,](\w+?)\([^)]*?\)').findall( mainFunBody )
+    match = re.compile(r'[ =(,](\w+?)\([^)]*?\)').findall(mainFunBody)
     
     if len(match):
         # first item is name of main function, so omit it
@@ -443,12 +455,12 @@ def DecryptSignatureNew(s, playerUrl):
     allLocalVarNamesTab = []
     playerData          = ''    
 
-    request = urllib2.Request(playerUrl)
+    request = Request(playerUrl)
     #res        = core._fetchPage({u"link": playerUrl})
     #playerData = res["content"]
             
     try:
-        playerData = urllib2.urlopen(request).read()
+        playerData = urlopen(request).read()
         playerData = playerData.decode('utf-8', 'ignore')
     
     except Exception as e:
@@ -456,7 +468,7 @@ def DecryptSignatureNew(s, playerUrl):
         return ''
         
     # get main function name 
-    match = re.search("signature=([$a-zA-Z]+)\([^)]\)", playerData)
+    match = re.search(r"signature=([$a-zA-Z]+)\([^)]\)", playerData)
     
     if match:
         mainFunName = match.group(1)
