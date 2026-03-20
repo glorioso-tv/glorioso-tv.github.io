@@ -188,7 +188,7 @@ class Config:
         self.MODURL2 = 'http://mirrors.kodi.tv/addons/jarvis/'
         self.DEPENDENCIES = ['script.module.bottle', 'script.module.certifi',
                              'script.module.chardet', 'script.module.idna',
-                             'script.module.requests', 'script.module.six',
+                             'script.module.requests',
                              'script.module.urllib3', 'script.module.web-pdb']
 
         # Default special paths

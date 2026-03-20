@@ -32,10 +32,10 @@ from resources.libs.common.config import CONFIG
 
 try:  # Python 3
     from urllib.parse import urlencode
-    from urllib.request import FancyURLopener
+    from urllib.request import Request, urlopen
 except ImportError:  # Python 2
     from urllib import urlencode
-    from urllib import FancyURLopener
+    from urllib2 import Request, urlopen
 
 
 URL = 'https://paste.ubuntu.com/'
@@ -242,18 +242,19 @@ def clean_log(content):
 
 def post_log(data, name):
     params = {'poster': CONFIG.BUILDERNAME, 'content': data, 'syntax': 'text', 'expiration': 'week'}
-    params = urlencode(params)
+    payload = urlencode(params).encode('utf-8')
+    headers = {'User-Agent': '{0}: {1}'.format(CONFIG.ADDON_ID, CONFIG.ADDON_VERSION)}
 
     try:
-        page = LogURLopener().open(URL, params)
+        request = Request(URL, data=payload, headers=headers)
+        page = urlopen(request)
     except Exception as e:
         a = 'failed to connect to the server'
         log("{0}: {1}".format(a, str(e)), level=xbmc.LOGERROR)
         return False, a
 
     try:
-        page_url = page.url.strip()
-        # copy_to_clipboard(page_url)
+        page_url = page.geturl().strip()
         log("URL for {0}: {1}".format(name, page_url))
         return True, page_url
     except Exception as e:
@@ -313,9 +314,6 @@ def copy_to_clipboard(txt):
         # log("ERROR: {0}".format(str(e)), level=xbmc.LOGERROR)
         # return False, "Error Sending Email."
 
-
-class LogURLopener(FancyURLopener):
-    version = '{0}: {1}'.format(CONFIG.ADDON_ID, CONFIG.ADDON_VERSION)
 
 
 def show_result(message, url=None):
