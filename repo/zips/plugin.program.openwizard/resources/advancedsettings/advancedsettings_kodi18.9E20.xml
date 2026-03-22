@@ -1,8 +1,8 @@
 <advancedsettings version="1.0">
     <cache>
         <buffermode>1</buffermode>
-        <memorysize>157286400</memorysize>
-        <readfactor>8.0</readfactor>
+        <memorysize>67108864</memorysize>
+        <readfactor>20</readfactor>
     </cache>
     <network>
         <curlclienttimeout>10</curlclienttimeout>
