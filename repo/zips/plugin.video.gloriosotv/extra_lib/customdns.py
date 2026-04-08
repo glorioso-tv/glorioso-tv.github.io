@@ -212,9 +212,3 @@ try:
     proxyOverride()
 except Exception:
     log_customdns(logging.ERROR, "Falha ao iniciar proxyOverride no customdns.py")
-# Inicialização forçada do Proxy
-try:
-    from extra_lib.proxy import proxyOverride
-    proxyOverride()
-except:
-    pass

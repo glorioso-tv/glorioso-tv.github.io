@@ -37,6 +37,9 @@ except ImportError:
 PORT = 8094
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 SHUTDOWN_EVENT = threading.Event()
+PROXY_START_LOCK = threading.Lock()
+PROXY_STARTED = False
+PROXY_THREAD = None
 
 # Variáveis globais para suporte à classe XtreamCodes
 HEADERS_BASE = {}
@@ -241,6 +244,7 @@ class ProxyHandler:
             except: pass
 
 def start_proxy():
+    global PROXY_STARTED
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
@@ -248,6 +252,7 @@ def start_proxy():
         # MUDANÇA IGUAL AO F4MTESTER: Escuta em todas as interfaces (0.0.0.0)
         server.bind(('0.0.0.0', PORT))
         server.listen(100)
+        PROXY_STARTED = True
         handler = ProxyHandler()
         
         if xbmc: xbmc.log("[Proxy] Servidor iniciado globalmente na porta {}".format(PORT), xbmc.LOGINFO)
@@ -267,18 +272,22 @@ def start_proxy():
     except Exception as e:
         if xbmc: xbmc.log("[Proxy] Erro ao subir porta: {}".format(e), xbmc.LOGERROR)
     finally:
+        PROXY_STARTED = False
         server.close()
 
 class proxyOverride:
     def __init__(self, port=PORT):
         global PORT
+        global PROXY_THREAD
         PORT = port
-        if self._is_port_in_use():
-            return
+        with PROXY_START_LOCK:
+            if PROXY_STARTED or self._is_port_in_use():
+                return
 
-        self.thread = threading.Thread(target=start_proxy)
-        self.thread.daemon = True
-        self.thread.start()
+            self.thread = threading.Thread(target=start_proxy)
+            self.thread.daemon = True
+            self.thread.start()
+            PROXY_THREAD = self.thread
 
     def _is_port_in_use(self):
         # Verifica localmente se a porta está ocupada
