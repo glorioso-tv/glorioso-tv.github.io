@@ -1,8 +1,8 @@
 import six
 try:
-    from urllib.parse import urlparse, parse_qs, quote, unquote, quote_plus, unquote_plus, urlencode #python 3
+    from urllib.parse import urlparse, parse_qs, quote, unquote, quote_plus, unquote_plus, urlencode, urljoin #python 3
 except ImportError:    
-    from urlparse import urlparse, parse_qs #python 2
+    from urlparse import urlparse, parse_qs, urljoin #python 2
     from urllib import quote, unquote, quote_plus, unquote_plus, urlencode
 if six.PY3:
     from http.server import HTTPServer
@@ -190,19 +190,26 @@ class handler(SimpleHTTPRequestHandler):
             url = url.split('&h123')[0]
         # if '&' in url:
         #     url = url.split('&')[0]
-        if not '.m3u8' in url and not '/hl' in url and int(url.count(":")) == 2 and int(url.count("/")) > 4:
+        if not '.m3u8' in url and not '/hl' in url and int(url.count("/")) > 4 and not '.mp4' in url and not '.avi' in url:
             parsed_url = urlparse(url)
             try:
                 host_part1 = '%s://%s'%(parsed_url.scheme,parsed_url.netloc)
-                host_part2 = url.split(host_part1)[1]
-                url = host_part1 + '/live' + host_part2
+                host_part2 = url.split(host_part1, 1)[1]
+                if not host_part2.startswith('/live/'):
+                    url = host_part1 + '/live' + host_part2
+                else:
+                    url = host_part1 + host_part2
+                query = ''
+                if '?' in url:
+                    url, query = url.split('?', 1)
+                    query = '?' + query
                 file = self.basename(url)
-                if '.ts' in file:
-                    file_new = file.replace('.ts', '.m3u8')
-                    url = url.replace(file, file_new)
+                if file.endswith('.ts'):
+                    file_new = file[:-3] + '.m3u8'
+                    url = url.replace(file, file_new) + query
                 else:
                     file_new = file + '.m3u8'
-                    url = url.replace(file, file_new)
+                    url = url.replace(file, file_new) + query
             except:
                 pass
         return url
@@ -221,6 +228,48 @@ class handler(SimpleHTTPRequestHandler):
             return True
         else:
             return False
+
+    def make_absolute_uri(self,base_url,uri):
+        uri = uri.strip()
+        if not uri or uri.startswith('#') or uri.startswith('data:'):
+            return uri
+        if uri.startswith('http://') or uri.startswith('https://'):
+            return uri
+        if uri.startswith('//'):
+            parsed = urlparse(base_url)
+            return parsed.scheme + ':' + uri
+        return urljoin(base_url, uri)
+
+    def rewrite_tag_uris(self,line,base_url):
+        marker = 'URI="'
+        pos = 0
+        while True:
+            start = line.find(marker, pos)
+            if start == -1:
+                break
+            uri_start = start + len(marker)
+            uri_end = line.find('"', uri_start)
+            if uri_end == -1:
+                break
+            uri = line[uri_start:uri_end]
+            abs_uri = self.make_absolute_uri(base_url, uri)
+            line = line[:uri_start] + abs_uri + line[uri_end:]
+            pos = uri_start + len(abs_uri) + 1
+        return line
+
+    def absolute_origin_playlist(self,text,base_url):
+        lines = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                lines.append(line)
+            elif stripped.startswith('#'):
+                lines.append(self.rewrite_tag_uris(line, base_url))
+            else:
+                lines.append(self.make_absolute_uri(base_url, stripped))
+        if text.endswith('\n') or text.endswith('\r'):
+            return '\n'.join(lines) + '\n'
+        return '\n'.join(lines)
 
     
     def ts(self,url,headers,head=False):
@@ -380,36 +429,9 @@ class handler(SimpleHTTPRequestHandler):
                     #     URL_TOKEN = ''                  
                     # elif not URL_TOKEN and 'token' in last_url:
                     #     URL_TOKEN = last_url
-                    r_parse = urlparse(last_url)
-                    if HTTPS_PORT:
-                        base_url = "https://" + r_parse.netloc
-                    else:
-                        base_url = "http://" + r_parse.netloc
                     if r.status_code == 200:
                         self.send_stream_headers('application/vnd.apple.mpegurl')
-                        text_ = r.text
-                        if '.html' in text_ and 'http' in text_:
-                            text_ = text_.replace('http', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url=http')
-                        elif 'chunklist_' in text_ and not 'http' in text_:
-                            file = self.basename(url)
-                            base_url = url.replace(file, '')
-                            if base_url.endswith('/'):
-                                base_url = base_url[:-1]
-                            text_ = text_.replace('chunklist_', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url='+base_url+'/chunklist_')
-                        elif 'media_' in text_ and '.ts' in text_ and not 'http' in text_:
-                            file = self.basename(url)
-                            base_url = url.replace(file, '')
-                            if base_url.endswith('/'):
-                                base_url = base_url[:-1]
-                            text_ = text_.replace('media_', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url='+base_url+'/media_')
-                        elif not '/hl' in text_ and not 'http' in text_:
-                            file = self.basename(last_url)
-                            base_url = last_url.replace(file, '')
-                            GLOBAL_URL = base_url
-                        elif '/hl' in text_ and not 'http' in text_:
-                            text_ = text_.replace('/hl', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url='+base_url+'/hl')
-                        else:
-                            text_ = text_.replace('http', 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url=http')
+                        text_ = self.absolute_origin_playlist(r.text, last_url)
                         self.wfile.write(text_.encode("utf-8"))
                     r.close()
                     break

@@ -630,7 +630,7 @@ v0.5.9 (2022-03-22)
   </extension>
 </addon>
 
-<addon id="plugin.video.gloriosotv" version="1.1.6" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
+<addon id="plugin.video.gloriosotv" version="1.1.7" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
 	<requires>
 		<import addon="script.module.beautifulsoup4" />
 		<import addon="script.module.six" />
