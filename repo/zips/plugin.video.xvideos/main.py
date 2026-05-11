@@ -8,6 +8,7 @@ import xbmcgui
 import xbmcplugin
 import resources.lib.xvideos as xvideos
 import resources.lib.helper as helper
+import xbmcaddon
 
 try:
     from urllib2 import urlparse
@@ -19,6 +20,39 @@ _url = sys.argv[0]
 
 # Get the plugin handle as an integer number.
 _handle = int(sys.argv[1])
+
+addon = xbmcaddon.Addon()
+password = addon.getSetting('password')
+if not password:
+    password = '0069'
+    addon.setSetting('password', password)
+
+def check_password():
+    kb = xbmc.Keyboard('', 'Enter Password')
+    kb.setHiddenInput(True)
+    kb.doModal()
+    if kb.isConfirmed():
+        entered = kb.getText()
+        if entered == password:
+            return True
+        else:
+            xbmcgui.Dialog().ok('Error', 'Incorrect Password')
+            return False
+    return False
+
+def change_password():
+    if not check_password():
+        return
+    kb = xbmc.Keyboard('', 'Enter New Password')
+    kb.setHiddenInput(True)
+    kb.doModal()
+    if kb.isConfirmed():
+        new_pass = kb.getText()
+        if new_pass:
+            addon.setSetting('password', new_pass)
+            xbmcgui.Dialog().ok('Success', 'Password Changed')
+        else:
+            xbmcgui.Dialog().ok('Error', 'Password cannot be empty')
 
 if __name__ == '__main__':
 
@@ -38,6 +72,9 @@ if __name__ == '__main__':
     #           1st Start           #
     #################################
     if params == {}:
+        if not check_password():
+            quit()
+
         # Search
         list_item = xbmcgui.ListItem(label='Search')
         url = helper.get_url(_url, action='search')
@@ -47,6 +84,12 @@ if __name__ == '__main__':
         # Categories
         list_item = xbmcgui.ListItem(label='Categorias')
         url = helper.get_url(_url, action='categories')
+        is_folder = True
+        xbmcplugin.addDirectoryItem(_handle, url, list_item, is_folder)
+
+        # Change Password
+        list_item = xbmcgui.ListItem(label='Change Password')
+        url = helper.get_url(_url, action='change_password')
         is_folder = True
         xbmcplugin.addDirectoryItem(_handle, url, list_item, is_folder)
 
@@ -88,11 +131,11 @@ if __name__ == '__main__':
             sort = '&sort=views'
 
         link = 'https://www.xvideos.com/?k=' + s_therm + sort
-        videos = xvideos.get_vids(link, 'search')
-        has_next = True
+        videos, next_url = xvideos.get_vids(link, 'search')
+        has_next = bool(next_url)
 
         helper.list_videos(_handle, _url, videos,
-                           link, 'search', has_next)
+                           next_url, 'search', has_next)
         quit()
 
     #################################
@@ -107,33 +150,29 @@ if __name__ == '__main__':
     #           category            #
     #################################
     if params['action'] == 'category':
-        videos = xvideos.get_vids(params['link'], params['category'])
-        has_next = True
+        videos, next_url = xvideos.get_vids(params['link'], params['category'])
+        has_next = bool(next_url)
         helper.list_videos(_handle, _url, videos,
-                           params['link'], params['category'], has_next)
+                           next_url, params['category'], has_next)
         quit()
 
     #################################
     #              next             #
     #################################
     if params['action'] == 'next':
-        # ads a &p= at first and raises the page number every call
+        url = params['link']
+        videos, next_url = xvideos.get_vids(url, params['category'])
+        has_next = bool(next_url)
 
-        if params['page'] == '1':
-            url = params['link'] + '&p=' + str(params['page'])
-        else:
-            url = params['link'] + str(params['page'])
+        helper.list_videos(_handle, _url, videos, next_url,
+                           params['category'], has_next)
+        quit()
 
-        page = int(params['page']) + 1
-        videos = xvideos.get_vids(url, params['category'])
-
-        if int(videos[0]['page']) == page:
-            has_next = False
-        else:
-            has_next = True
-
-        helper.list_videos(_handle, _url, videos, url,
-                           params['category'], has_next, page )
+    #################################
+    #         change_password       #
+    #################################
+    if params['action'] == 'change_password':
+        change_password()
         quit()
 
     #################################

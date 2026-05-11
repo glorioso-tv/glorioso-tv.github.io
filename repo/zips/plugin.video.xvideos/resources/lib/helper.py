@@ -82,7 +82,7 @@ def get_search():
 #################################
 #Create the list of playable videos in the Kodi interface.
 
-def list_videos(_handle, _url, videos, link, category, has_next, page=1):
+def list_videos(_handle, _url, videos, link, category, has_next):
     # Set plugin category. It is displayed in some skins as the name
     # of the current section.
     xbmcplugin.setPluginCategory(_handle, category)
@@ -128,7 +128,7 @@ def list_videos(_handle, _url, videos, link, category, has_next, page=1):
         # Add the next button to the end of list
         list_item = xbmcgui.ListItem(label='Next')
         url = get_url(_url, action='next',
-                      link=link, page=page ,category=category)
+                      link=link, category=category)
         is_folder = True
         xbmcplugin.addDirectoryItem(_handle, url, list_item, is_folder)
 
