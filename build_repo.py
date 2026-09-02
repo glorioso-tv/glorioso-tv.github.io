@@ -20,7 +20,8 @@ class GeradorDeRepositorio:
         self.caminho_addons_xml_md5 = os.path.join(self.base_dir, "repo", "addons.xml.md5")
 
         print(f"Diretório base: {self.base_dir}")
-        
+
+        self._garantir_estrutura_repo()
         self._compactar_addons()
         self._gerar_arquivo_addons()
         self._gerar_arquivo_md5()
@@ -30,6 +31,10 @@ class GeradorDeRepositorio:
         self._git_force_add()
         
         print("\nArquivos do repositório gerados com sucesso!")
+
+    def _garantir_estrutura_repo(self):
+        """Garante que a estrutura do repositório exista antes da geração."""
+        os.makedirs(self.caminho_zips, exist_ok=True)
 
     def _finalizar_repo(self):
         """Copia o zip do repositório para a pasta raiz e atualiza o index.html."""
@@ -131,9 +136,6 @@ class GeradorDeRepositorio:
         print(f"\nArquivo 'addons.xml' salvo com {len(addons)} addons.")
 
     def _compactar_addons(self):
-        if not os.path.exists(self.caminho_zips):
-            return
-
         print("\nVerificando pastas para criar novos ZIPs...")
         for nome_addon in os.listdir(self.caminho_zips):
             caminho_addon = os.path.join(self.caminho_zips, nome_addon)
@@ -154,8 +156,10 @@ class GeradorDeRepositorio:
                         
                         # Remove zips antigos da pasta para evitar confusão
                         for file in os.listdir(caminho_addon):
-                            if file.endswith(".zip") and file != zip_name:
-                                os.remove(os.path.join(caminho_addon, file))
+                            caminho_arquivo = os.path.join(caminho_addon, file)
+                            if (file.endswith(".zip") and file != zip_name
+                                    and os.path.isfile(caminho_arquivo)):
+                                os.remove(caminho_arquivo)
                                 print(f"  - Removido zip antigo: {file}")
                         
                         print(f"  - Compactando {addon_id} v{version}...")

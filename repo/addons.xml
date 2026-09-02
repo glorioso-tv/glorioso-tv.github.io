@@ -103,7 +103,7 @@ v0.5.9 (2022-03-22)
 </addon>
 <addon id="addon.dns"
        name="CLOUDFLARE DNS"
-       version="1.0.0"
+       version="1.0.1"
        provider-name="Joel">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
