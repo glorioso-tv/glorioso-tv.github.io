@@ -146,11 +146,12 @@ def deleteThumbnails(mode='verbose'):
         except:
             pass
 
-    try:
-        text13 = os.path.join(databasePath,"Textures13.db")
-        os.unlink(text13)
-    except:
-        pass
+    if mode != 'silent':
+        try:
+            text13 = os.path.join(databasePath,"Textures13.db")
+            os.unlink(text13)
+        except:
+            pass
     if mode == 'verbose': xbmc.executebuiltin('Notification(%s, %s, %s, %s)' % ('Maintenance' , 'Clean Thumbs Completed' , '3000', iconpath))
 
 def purgePackages(mode='verbose'):

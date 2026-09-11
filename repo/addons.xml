@@ -217,7 +217,7 @@ v0.5.9 (2022-03-22)
 	</extension>
 </addon>
 
-<addon id="script.ezmaintenanceplus" name="EZ Maintenance+" version="1.0" provider-name="aenema, peno">
+<addon id="script.ezmaintenanceplus" name="EZ Maintenance+" version="1.0.2" provider-name="aenema, peno">
   <requires>
     <import addon="xbmc.python" version="3.0.0" />
     <import addon="script.module.requests" version="1.0.0" />

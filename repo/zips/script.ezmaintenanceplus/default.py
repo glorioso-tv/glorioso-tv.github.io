@@ -62,6 +62,7 @@ def CATEGORIES():
     CreateDir('[COLOR white][B]BACKUP E RESTAURAÇÃO[/B][/COLOR]', 'ur', 'backup_restore', ADDON_ICON, ADDON_FANART, '')
     CreateDir('[COLOR white][B]MANUTENÇÃO[/B][/COLOR]', 'ur', 'maintenance', ADDON_ICON, ADDON_FANART, '', isFolder=True)
     CreateDir('[COLOR white][B]ADVANCEDSETTINGS[/B][/COLOR]', 'ur', 'adv_settings', ADDON_ICON, ADDON_FANART, '')
+    CreateDir('[COLOR white][B]TESTE DE VELOCIDADE[/B][/COLOR]', 'ur', 'speedtest', ADDON_ICON, ADDON_FANART, '')
     CreateDir('[COLOR white][B]VISUALIZAR OU ENVIAR LOG[/B][/COLOR]', 'ur', 'log_tools', ADDON_ICON, ADDON_FANART, '')
     CreateDir('[COLOR white][B]CONFIGURAÇÕES[/B][/COLOR]', 'ur', 'settings', ADDON_ICON, ADDON_FANART, '')
 
@@ -286,6 +287,10 @@ elif action == 'clear_thumbs':
     from resources.lib.modules import maintenance
     maintenance.deleteThumbnails()
 
+elif action == 'speedtest':
+    from resources.lib.modules import speedtest
+    speedtest.testar_velocidade()
+
 elif action == 'backup_restore':
     from resources.lib.modules import wiz
     typeOfBackup = ['CRIAR BACKUP', 'RESTAURAR BACKUP', 'INSTALAR BUILD ZIP']
@@ -306,5 +311,5 @@ elif action == 'install_build':
 
     wiz.buildInstaller(url)
 
-xbmcplugin.endOfDirectory(int(sys.argv[1]))
+xbmcplugin.endOfDirectory(int(sys.argv[1]), cacheToDisc=False)
 

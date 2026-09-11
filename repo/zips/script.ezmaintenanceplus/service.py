@@ -25,16 +25,16 @@ iconpath = translatePath(os.path.join('special://home/addons/' + AddonID,'icon.p
 
 def run_startup_maintenance():
     """Wait for Kodi and clean disposable data once per start."""
-    if setting('startup.cache') != 'true':
+    if setting('startup.cache') == 'false':
         return
-    if monitor.waitForAbort(30):
+    if monitor.waitForAbort(10):
         return
     maintenance.clearCache(mode='silent')
-    if setting('startup.packages') == 'true':
+    if setting('startup.packages') != 'false':
         maintenance.purgePackages(mode='silent')
-    if setting('startup.thumbnails') == 'true':
+    if setting('startup.thumbnails') != 'false':
         maintenance.deleteThumbnails(mode='silent')
-    if setting('notify_mode') == 'true':
+    if setting('notify_mode') != 'false':
         xbmc.executebuiltin('Notification(%s, %s, %s, %s)' % ('Manutenção', 'Limpeza automática concluída', '3000', iconpath))
 
 class Monitor(xbmc.Monitor):
@@ -65,9 +65,9 @@ if __name__ == '__main__':
             if nextMaintenance > 0 and time.time() >= nextMaintenance:
                 xbmc.log("ezmaintenanceplus: AutoClean started", level=loglevel)
                 maintenance.clearCache()
-                if setting('startup.packages') == 'true':
+                if setting('startup.packages') != 'false':
                     maintenance.purgePackages(mode='silent')
-                if setting('startup.thumbnails') == 'true':
+                if setting('startup.thumbnails') != 'false':
                     maintenance.deleteThumbnails(mode='silent')
                 xbmc.log("ezmaintenanceplus: AutoClean done", level=loglevel)
                 maintenance.determineNextMaintenance()
