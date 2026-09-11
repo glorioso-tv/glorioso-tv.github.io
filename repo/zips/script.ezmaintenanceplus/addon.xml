@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="script.ezmaintenanceplus" name="EZ Maintenance+" version="1.0" provider-name="aenema, peno">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0" />
+    <import addon="script.module.requests" version="1.0.0" />
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="default.py">
+     <provides>executable</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py" start="startup" />
+  <extension point="xbmc.addon.metadata">
+  <summary>Ferramenta de manutenção do Kodi</summary>
+  <description>Limpeza segura de cache, backup e ferramentas de manutenção para o Kodi 21.3 ou superior. A limpeza automática no início pode ser desativada nas configurações.</description>
+    <language>pt_BR</language>
+    <platform>all</platform>
+    <license>The MIT License</license>
+    <forum>-</forum>
+    <source>https://github.com</source>
+    <assets>
+	    <icon>icon.png</icon>
+      <fanart>fanart.jpg</fanart>
+    </assets>
+    <news>
+  1.0
+  - Atualizado o gerador do advancedsettings com timeout 15, cinco tentativas, HTTP/2 desativado e IPv6 mantido ativo.
+  - Usa o motor oficial Ookla quando instalado no dispositivo, com fallback Python multiplataforma.
+  - Atualizado para Kodi 21.3 e Python 3, com configurações traduzidas para pt-BR.
+
+  2026.09.11.1
+   - O teste usa o motor oficial Ookla quando instalado no dispositivo.
+   - Mantido fallback Python para Android, Linux, Windows, macOS e Raspberry Pi.
+
+  2026.09.11.0
+   - Atualizado para Kodi 21.3 e Python 3.
+   - Removidas tags de buffer obsoletas do advancedsettings.xml.
+   - Limpeza automática de cache após o Kodi concluir a inicialização.
+   - Interface de configurações traduzida para pt-BR.
+
+2023.01.09.0
+ - Added AutoClean Cache functionality every x days at a given hour.
+ - Backup always replaced the home folder reference in xml files with special://home
+   Not all addons can handle this replace so it is now possible via a setting to disable this.
+ - Backup Cancel didn't work. This is now fixed.
+
+2023.01.01.0
+ - Fix a fix on 2022.12.28.0
+
+2022.12.28.0
+ - Fix crash with full backup when there are foreign, like Hebrew, characters in xml files
+
+2021.12.19.0
+ - Made kodi 19 (Matrix) compatible.
+
+2021.11.03.0
+- Fix Speedtest crash.
+
+2020.12.19.1
+- The plugin was also installed under Video add-ons. Now it only is in Program add-ons where it belongs
+- Clean removed some files created by Common plugin cache or StorageServer or script.common.plugin.cache at kodi startup.
+  This resulted in breaking cache functionality of kodi
+- Upload kodi log file to pastebin didn't always work and the first bytes were binary characters
+- Made all decode calls UTF-8
+- Improved ADVANCED SETTINGS(BUFFER SIZE) functionality
+    </news>
+  </extension>
+</addon>

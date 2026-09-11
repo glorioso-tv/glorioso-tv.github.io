@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings>
+	<category label="Manutenção">
+		<setting id="notify_mode" type="bool" label="Mostrar aviso da limpeza ao iniciar" default="false" />
+                <setting type="lsep" label="Limpeza automática" />
+		<setting id="startup.cache" type="bool" label="Limpar cache ao iniciar o Kodi" default="true" />
+		<setting id="startup.packages" type="bool" label="Limpar pacotes ZIP antigos automaticamente" default="true" />
+		<setting id="startup.thumbnails" type="bool" label="Limpar miniaturas automaticamente" default="true" />
+		<setting id="autoCleanDays" type="slider" label="Limpar cache a cada quantos dias (0 desativa)" default="0" range="0,365" option="int" />
+		<setting id="autoCleanHour" type="slider" label="Horário da limpeza automática (0 a 23)" default="4" range="0,23" option="int" enable="!eq(-1,0)" subsetting="true" />
+                <setting type="lsep" label="Limites da pasta de pacotes" />
+		<setting id="filesize_alert" type="slider" label="Tamanho máximo dos arquivos (MB)" default="200" range="25,500" option="int" />
+		<setting id="packagenumbers_alert" type="slider" label="Quantidade máxima de arquivos ZIP" default="50" range="5,200" option="int" />
+                <setting type="lsep" label="Limites das miniaturas" />
+		<setting id="filesizethumb_alert" type="slider" label="Tamanho máximo das miniaturas (MB)" default="500" range="50,2000" option="int" />
+	</category>
+
+	<category label="Backup e restauração">
+		<setting id="BackupFixSpecialHome" type="bool" label="Replace home folder in xml files with special://home" default="false" />
+		<setting id="download.path" type="folder" label="Pasta para salvar backups" visible="True" />
+		<setting id="restore.path" type="folder" label="Pasta dos backups para restaurar" visible="True" />
+    </category>
+</settings>
