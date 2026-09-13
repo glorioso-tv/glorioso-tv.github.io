@@ -42,9 +42,11 @@ MAX_CPU = 98
 class handler(SimpleHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
-    def send_stream_headers(self, content_type, status=200):
+    def send_stream_headers(self, content_type, status=200, content_length=None):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
+        if content_length is not None:
+            self.send_header('Content-Length', str(content_length))
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Pragma', 'no-cache')
         self.send_header('Connection', 'close')
@@ -430,13 +432,18 @@ class handler(SimpleHTTPRequestHandler):
                     # elif not URL_TOKEN and 'token' in last_url:
                     #     URL_TOKEN = last_url
                     if r.status_code == 200:
-                        self.send_stream_headers('application/vnd.apple.mpegurl')
                         text_ = self.absolute_origin_playlist(r.text, last_url)
-                        self.wfile.write(text_.encode("utf-8"))
+                        payload = text_.encode("utf-8")
+                        self.send_stream_headers('application/vnd.apple.mpegurl', content_length=len(payload))
+                        self.wfile.write(payload)
+                        r.close()
+                        break
                     r.close()
-                    break
+                    time.sleep(0.5)
+                    continue
                 except:
-                    pass
+                    time.sleep(0.5)
+                    continue
             if STOP_SERVER:
                 break
             time.sleep(3)           
@@ -473,8 +480,8 @@ class handler(SimpleHTTPRequestHandler):
             if url:
                 if not GLOBAL_HEADERS:
                     self.get_headers(url)
-                m3u8 = self.convert_to_m3u8(url)
-                url = m3u8
+                if not url.lower().split('?', 1)[0].endswith('.ts'):
+                    url = self.convert_to_m3u8(url)
                 # ts_link = self.convert_to_ts(url)
                 # url = ts_link
                 if ':443' in url or 'https://' in url:
@@ -549,8 +556,8 @@ class handler(SimpleHTTPRequestHandler):
             if url:
                 if not GLOBAL_HEADERS:
                     self.get_headers(url)
-                m3u8 = self.convert_to_m3u8(url)
-                url = m3u8
+                if not url.lower().split('?', 1)[0].endswith('.ts'):
+                    url = self.convert_to_m3u8(url)
                 # ts_link = self.convert_to_ts(url)
                 # url = ts_link
                 if ':443' in url or 'https://' in url:
@@ -616,6 +623,7 @@ class mediaserver:
         if self.server_instance:
             try:
                 self.server = threading.Thread(target=serve_forever, args=(self.httpd, ))
+                self.server.daemon = True
                 self.server_thread = True
             except:
                 self.server_thread = False
@@ -656,6 +664,12 @@ def prepare_url(url):
         url = unquote(url)
     except:
         pass
+    base_url, separator, stream_headers = url.partition('|')
+    path, query_separator, query = base_url.partition('?')
+    if path.lower().endswith('.ts'):
+        path = path[:-3] + '.m3u8'
+        base_url = path + (query_separator + query if query_separator else '')
+        url = base_url + (separator + stream_headers if separator else '')
     url = url.replace('|', '&h123=true&')
     url = quote_plus(url)
     url = 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url=' + url

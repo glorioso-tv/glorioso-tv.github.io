@@ -126,6 +126,7 @@ class XtreamCodes:
 
     def send_ts(self,self_server,url):
         global HEADERS_BASE
+        global STOP_SERVER
         if url:
             self_server.send_header('Content-type','video/mp2t')
             self_server.end_headers() 
@@ -135,30 +136,35 @@ class XtreamCodes:
             # except:
             #     pass
             try:
+                url = url.split('|', 1)[0]
+                url = url.split('%7C', 1)[0]
                 for i in range(10):
+                    if STOP_SERVER:
+                        break
                     count = i + 1
                     stop_user = False
                     header_ = HEADERS_BASE
                     DNSOverride()
-                    r = requests.get(url, headers=header_, allow_redirects=True, stream=True, verify=False)
-                    code = r.status_code
-                    log('Status Code: %s'%str(code))
-                    if code == 200:                    
-                        try:
+                    r = None
+                    try:
+                        r = requests.get(url, headers=header_, allow_redirects=True, stream=True, verify=False, timeout=(3, 10))
+                        code = r.status_code
+                        log('Status Code: %s'%str(code))
+                        if code == 200:
                             for chunk in r.iter_content(chunk_size=8192):
-                                if chunk:                      
+                                if STOP_SERVER:
+                                    break
+                                if chunk:
                                     try:
                                         self_server.conn.sendall(chunk)
                                     except:
                                         stop_user = True
                                         break
-                        except:
-                            pass
-                    else:
-                        if stop_user:
+                        elif stop_user or count == 7:
                             break
-                        elif count == 7:
-                            break
+                    finally:
+                        if r is not None:
+                            r.close()
 
             except:
                 pass
@@ -231,14 +237,14 @@ class ProxyHandler(XtreamCodes):
         headers = HEADERS_BASE
         try:
             DNSOverride()
-            response = requests.head(video_url, headers=headers)
+            response = requests.head(video_url, headers=headers, timeout=(3, 5))
             if response.status_code == 200:
                 content_length = int(response.headers.get('Content-Length', 0))
                 start, end = self.get_range(request_data, content_length)
                 #headers['Range'] = f'bytes={start}-{end}'  # Adicionando cabeçalho de intervalo
                 headers['Range'] = 'bytes=%s-%s'%(str(start),str(end))  # Adicionando cabeçalho de intervalo
                 DNSOverride()
-                response = requests.get(video_url, headers=headers, stream=True)
+                response = requests.get(video_url, headers=headers, stream=True, timeout=(3, 10))
                 if response.status_code == 206 or response.status_code == 200:
                     self.send_partial_response(206, response.headers, content_length, response.iter_content(chunk_size=1024), start, end)
                 else:
@@ -370,7 +376,8 @@ class Server:
                 break
             conn, addr = self.server_socket.accept()
             handler = ProxyHandler(conn, addr, self)
-            threading.Thread(target=handler.handle_request).start()
+            thread = threading.Thread(target=handler.handle_request, daemon=True)
+            thread.start()
 
     def stop_server(self):
         self.server_socket.close()
@@ -402,8 +409,10 @@ class XtreamProxy:
     def start(self):
         status = self.check_service()
         if status == False:
-            proxy_service = threading.Thread(target=loop_server).start()
-            monitor_service = threading.Thread(target=monitor).start()
+            proxy_service = threading.Thread(target=loop_server, daemon=True)
+            proxy_service.start()
+            monitor_service = threading.Thread(target=monitor, daemon=True)
+            monitor_service.start()
         else:
             self.reset()
 

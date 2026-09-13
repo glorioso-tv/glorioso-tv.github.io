@@ -518,7 +518,7 @@ class XTS:
             # T[0] ^= GF_128_FDBK;
             try:
                 xrange
-                self.T = self.T ^ 0x100000000000000000000000000000087L
+                self.T = self.T ^ 0x100000000000000000000000000000087
             except:
                 self.T = self.T ^ 0x100000000000000000000000000000087
 

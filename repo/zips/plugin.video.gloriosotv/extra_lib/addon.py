@@ -9,6 +9,7 @@ except ImportError:
     import server
 import threading
 import time
+from six.moves import urllib_parse
 
 
 def m3u8_to_ts(url):
@@ -67,6 +68,7 @@ def player_hlsretry(name,url,iconimage,description):
     li.setArt({"icon": "DefaultVideo.png", "thumb": iconimage})
     set_video_info(li, title=name, plot=description)
     xbmc.Player().play(item=url, listitem=li)
+    _monitor_local_player(hlsretry.HOST_NAME, hlsretry.PORT_NUMBER)
 
 def player_tsdownloader(name,url,iconimage,description):
     if name:
@@ -74,7 +76,7 @@ def player_tsdownloader(name,url,iconimage,description):
     else:
         name = 'GLORIOSO TV - TSDOWNLOADER'
     url = unquote_plus(url)
-    url = url.replace('live/', '').replace('.m3u8', '')
+    url = url.replace('.m3u8', '')
     url = 'http://%s:%s/?url=%s'%(str(tsdownloader.HOST_NAME),str(tsdownloader.PORT_NUMBER),quote(url))
     tsdownloader.XtreamProxy().start() 
     li=xbmcgui.ListItem(name)
@@ -82,6 +84,7 @@ def player_tsdownloader(name,url,iconimage,description):
     li.setArt({"icon": "DefaultVideo.png", "thumb": iconimage})
     set_video_info(li, title=name, plot=description)
     xbmc.Player().play(item=url, listitem=li)           
+    _monitor_local_player(tsdownloader.HOST_NAME, tsdownloader.PORT_NUMBER)
 
 def player_input(name, url, iconimage, description):
     try:
@@ -98,7 +101,7 @@ def player_input(name, url, iconimage, description):
     exts = (".mp4", ".mp3", ".mkv", ".avi", ".rmvb")
     if not any(ext in url.lower() for ext in exts):
         url = convert_to_m3u8(url)
-        if ".m3u8" in url:
+        if ".m3u8" in url or ".ts" in url or "format=ts" in url or ".ism" in url:
             plugin = xbmcvfs.translatePath(
                 "special://home/addons/inputstream.ffmpegdirect"
             )
@@ -123,6 +126,7 @@ def player_input(name, url, iconimage, description):
                 url = f"{url}|User-Agent={user_agent}&Connection=keep-alive"
 
             play_item = xbmcgui.ListItem(path=url)
+            item = play_item
             play_item.setArt({"icon": "DefaultVideo.png", "thumb": iconimage or ""})
 
             if kversion > 19:
@@ -135,28 +139,89 @@ def player_input(name, url, iconimage, description):
                 )
 
             play_item.setContentLookup(False)
-            play_item.setMimeType("application/vnd.apple.mpegurl")
-
-            # --- CONFIGURAÇÕES DO INPUTSTREAM FFMPEGDIRECT ---
-            inputstream_prop = "inputstream" if kversion >= 19 else "inputstreamaddon"
-            play_item.setProperty(inputstream_prop, "inputstream.ffmpegdirect")
             play_item.setProperty("IsPlayable", "true")
 
-            play_item.setProperty("inputstream.ffmpegdirect.mime_type", "application/vnd.apple.mpegurl")
-            play_item.setProperty("inputstream.ffmpegdirect.manifest_type", "hls")
-            play_item.setProperty("inputstream.ffmpegdirect.open_mode", "ffmpeg")
+            if '$$lic' in url:
+                url, lic = url.split('$$lic=')
+                lic = urllib_parse.unquote_plus(lic)
+                if '{SSM}' not in lic:
+                    lic += '||R{SSM}|'
+                play_item.setProperty('inputstream.ffmpegdirect.license_type', 'com.widevine.alpha')
+                play_item.setProperty('inputstream.ffmpegdirect.license_key', lic)
+            if '|' in url:
+                url, strhdr = url.split('|')
+                play_item.setProperty('inputstream.ffmpegdirect.stream_headers', strhdr)
+                item.setPath(url)
+            if '.m3u8' in url:
+                if six.PY2:
+                    play_item.setProperty('inputstreamaddon', 'inputstream.ffmpegdirect')
+                else:
+                    play_item.setProperty('inputstream', 'inputstream.ffmpegdirect')
+                play_item.setProperty('inputstream.ffmpegdirect.manifest_type', 'hls')
+                play_item.setProperty('inputstream.ffmpegdirect.open_mode', 'curl')
+                play_item.setProperty('inputstream.ffmpegdirect.stream_mode', 'timeshift')
+                play_item.setProperty('inputstream.ffmpegdirect.chunk_size', '67108864')
+                play_item.setProperty('inputstream.ffmpegdirect.buffer_mode', 'adaptive')
+                play_item.setProperty('inputstream.ffmpegdirect.cache', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.codec_whitelist', 'h264,hevc,aac,mp3,ac3,eac3')
+                play_item.setProperty('inputstream.ffmpegdirect.protocol_whitelist', 'http,https,tcp,udp')
+                play_item.setProperty('inputstream.ffmpegdirect.max_bandwidth', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.seekable', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.scalevideo', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.codec_whitelist', 'ALL')
+                play_item.setProperty('inputstream.ffmpegdirect.protocol_whitelist', 'ALL')
+                play_item.setProperty('inputstream.ffmpegdirect.max_bandwidth', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.ignore_ts', 'false')
+                play_item.setProperty('inputstream.ffmpegdirect.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '10')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.timeout', '30')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.followlocation', '1')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifypeer', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifyhost', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.low_speed_limit', '1000')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.low_speed_time', '20')
+                play_item.setProperty('inputstream.ffmpegdirect.manifest_update_parameter', 'full')
+                play_item.setProperty('inputstream.ffmpegdirect.read_full_manifest', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.min_buffer_time', '10')
+                play_item.setProperty('inputstream.ffmpegdirect.max_buffer_time', '30')
+                item.setContentLookup(False)
 
-            # --- BUFFER E RECONEXÃO (Modo Memória) ---
-            play_item.setProperty("inputstream.ffmpegdirect.cache", "true")
-            play_item.setProperty("inputstream.ffmpegdirect.buffer_mode", "memory")
-            play_item.setProperty("inputstream.ffmpegdirect.min_buffer_time", "10")
-            play_item.setProperty("inputstream.ffmpegdirect.max_buffer_time", "60")
-            play_item.setProperty("inputstream.ffmpegdirect.reconnect_on_error", "true")
-            play_item.setProperty("inputstream.ffmpegdirect.max_reconnects", "10")
+            elif '.ts' in url or 'format=ts' in url:
+                if six.PY2:
+                    play_item.setProperty('inputstreamaddon', 'inputstream.ffmpegdirect')
+                else:
+                    play_item.setProperty('inputstream', 'inputstream.ffmpegdirect')
+                item.setMimeType('video/mp2t')
+                play_item.setProperty('inputstream.ffmpegdirect.open_mode', 'curl')
+                play_item.setProperty('inputstream.ffmpegdirect.stream_mode', 'ffmpeg')
+                play_item.setProperty('inputstream.ffmpegdirect.program_number', '2154')
+                play_item.setProperty('inputstream.ffmpegdirect.is_realtime_stream', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.ts_mode', 'mpegts')
+                play_item.setProperty('inputstream.ffmpegdirect.pmt_pid', '256')
+                play_item.setProperty('inputstream.ffmpegdirect.video_pid', '257')
+                play_item.setProperty('inputstream.ffmpegdirect.audio_pid', '258')
+                play_item.setProperty('inputstream.ffmpegdirect.cache', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.seekable', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.ignore_ts', 'false')
+                play_item.setProperty('inputstream.ffmpegdirect.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '10')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.timeout', '30')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.followlocation', '1')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifypeer', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifyhost', '0')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.low_speed_limit', '1000')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.low_speed_time', '20')
+                item.setContentLookup(False)
 
-            # --- REDE E TIMEOUTS ---
-            play_item.setProperty("inputstream.ffmpegdirect.curl_option.timeout", "30")
-            play_item.setProperty("inputstream.ffmpegdirect.curl_option.connecttimeout", "15")
+            elif '.ism' in url:
+                if six.PY2:
+                    play_item.setProperty('inputstreamaddon', 'inputstream.ffmpegdirect')
+                else:
+                    play_item.setProperty('inputstream', 'inputstream.ffmpegdirect')
+                play_item.setProperty('inputstream.ffmpegdirect.manifest_type', 'ism')
+                item.setMimeType('application/vnd.ms-sstr+xml')
+                item.setContentLookup(False)
+            item.setPath(url)
 
             xbmc.Player().play(item=url, listitem=play_item)
         else:
@@ -168,9 +233,28 @@ class MyPlayer(xbmc.Player):
     def __init__(self):
         xbmc.Player.__init__(self)
 
+def _monitor_local_player(host, port):
+    def monitor_player():
+        monitor = xbmc.Monitor()
+        while not monitor.abortRequested() and not xbmc.Player().isPlaying():
+            if monitor.waitForAbort(0.25):
+                return
+        while xbmc.Player().isPlaying() and not monitor.abortRequested():
+            if monitor.waitForAbort(1):
+                break
+        try:
+            requests.get('http://%s:%s/stop' % (host, port), timeout=2)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=monitor_player)
+    thread.daemon = True
+    thread.start()
+
 def monitor():
-    while xbmc.Player().isPlaying():
-        time.sleep(1)
+    monitor = xbmc.Monitor()
+    while xbmc.Player().isPlaying() and not monitor.abortRequested():
+        monitor.waitForAbort(1)
     server.req_shutdown()
 
 def proxy2_thread(name,iconImage,url_to_play):
@@ -202,6 +286,7 @@ def proxy2_player(url,name,iconImage):
     infoDialog('ABRINDO PROXY...',iconimage='INFO', time=6000)
     server.mediaserver().start()
     t1 = threading.Thread(target=proxy2_thread, args=(name,iconImage,url_to_play))
+    t1.daemon = True
     t1.start()
     count = 0
     while not xbmc.Player().isPlaying():

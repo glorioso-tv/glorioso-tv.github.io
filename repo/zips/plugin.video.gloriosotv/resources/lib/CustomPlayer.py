@@ -4,6 +4,7 @@ from kodi_six import xbmc
 
 class MyXBMCPlayer(xbmc.Player):
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.is_active = True
         self.urlplayed = False
         self.pdialogue = None

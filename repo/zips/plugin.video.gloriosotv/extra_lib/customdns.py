@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 import socket
+import ipaddress
 import random
 import struct
 import sys
 import logging
+import threading
 import requests
 try:
     from urllib.parse import urlparse
@@ -15,6 +17,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 ORIGINAL_GETADDRINFO = socket.getaddrinfo
 DNS_CACHE = {}
+DNS_CACHE_LOCK = threading.RLock()
 SOCKET_PATCHED = False
 
 
@@ -61,9 +64,8 @@ class DNSOverride(object):
     
     def is_valid_ipv4(self, ip):
         try:
-            socket.inet_aton(ip) # Tenta converter para IPv4
-            return True
-        except socket.error:
+            return ipaddress.ip_address(ip).version == 4
+        except (ValueError, TypeError):
             return False    
 
     def resolve_doh(self, domain):
@@ -87,22 +89,24 @@ class DNSOverride(object):
         for url in self.doh_servers:
             try: # Tenta resolver via DoH
                 log_customdns(logging.DEBUG, "Consultando {0} via DoH {1}".format(domain, url))
-                response = requests.get(url, params=params, headers=headers, timeout=10)
-                if response.status_code != 200:
-                    log_customdns(
-                        logging.WARNING,
-                        "DoH retornou HTTP {0} para {1} em {2}".format(response.status_code, domain, url)
-                    )
-                    if response.status_code == 429:
-                        break
-                    continue
+                response = requests.get(url, params=params, headers=headers, timeout=(3, 5))
+                with response:
+                    if response.status_code != 200:
+                        log_customdns(
+                            logging.WARNING,
+                            "DoH retornou HTTP {0} para {1} em {2}".format(response.status_code, domain, url)
+                        )
+                        if response.status_code == 429:
+                            break
+                        continue
 
-                data = response.json()
+                    data = response.json()
                 if data.get("Status") == 0 and "Answer" in data:
                     for answer in data["Answer"]:
                         ip = answer.get("data") # IP resolvido
                         if self.is_valid_ipv4(ip):
-                            self.cache[domain] = ip
+                            with DNS_CACHE_LOCK:
+                                self.cache[domain] = ip
                             log_customdns(logging.DEBUG, "Resolved {0} to {1} via DoH".format(domain, ip))
                             return ip
 
@@ -118,9 +122,12 @@ class DNSOverride(object):
         return None
 
     def resolve(self, domain):
-        if domain in self.cache:
-            log_customdns(logging.DEBUG, "Cache hit for {0}: {1}".format(domain, self.cache[domain]))
-            return self.cache[domain]
+        domain = domain.rstrip('.').lower()
+        with DNS_CACHE_LOCK:
+            cached_ip = self.cache.get(domain)
+        if cached_ip:
+            log_customdns(logging.DEBUG, "Cache hit for {0}: {1}".format(domain, cached_ip))
+            return cached_ip
 
         ip = self.resolve_doh(domain)
         if ip:
@@ -161,7 +168,8 @@ class DNSOverride(object):
                 i += 10
                 if type_ == 1 and class_ == 1 and rdlen == 4:  # A record, IN class
                     ip = ".".join(str(ord(c)) if self.PY2 else str(c) for c in data[i:i+4]) # Converte para IP
-                    self.cache[domain] = ip
+                    with DNS_CACHE_LOCK:
+                        self.cache[domain] = ip
                     log_customdns(logging.DEBUG, "Resolved {0} to {1}".format(domain, ip))
                     return ip
                 i += rdlen
@@ -170,12 +178,11 @@ class DNSOverride(object):
 
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(5)  # Aumentado para 5 segundos
+            s.settimeout(3)
             query, tid = build_query(domain) # Constrói a query
             log_customdns(logging.DEBUG, "Consultando {0} via DNS {1}:53".format(domain, self.dns_server))
             s.sendto(query, (self.dns_server, 53))
             data, _ = s.recvfrom(512)
-            s.close()
             return parse_response(data, tid)
         except socket.timeout:
             log_customdns(logging.ERROR, "Timeout ao consultar DNS para {0}".format(domain))
@@ -183,13 +190,28 @@ class DNSOverride(object):
         except Exception as e:
             log_customdns(logging.ERROR, "Erro ao resolver {0}: {1}".format(domain, e))
             return None
+        finally:
+            try:
+                s.close()
+            except UnboundLocalError:
+                pass
+            except Exception:
+                pass
 
     def _resolver(self, host, port, *args, **kwargs):
         try:
+            if isinstance(host, bytes):
+                host = host.decode("ascii", "ignore")
+            if not host:
+                return self.original_getaddrinfo(host, port, *args, **kwargs)
+            host = host.rstrip('.')
+            family = args[0] if args else kwargs.get('family', socket.AF_UNSPEC)
+            if family == socket.AF_INET6:
+                return self.original_getaddrinfo(host, port, *args, **kwargs)
             # Se já for um IP válido, retorna direto
             if self.is_valid_ipv4(host):
                 log_customdns(logging.DEBUG, "Bypass DNS: {0} ja e um IP".format(host))
-                return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (host, port))]
+                return self.original_getaddrinfo(host, port, *args, **kwargs)
 
             if host in self.doh_hosts:
                 log_customdns(logging.DEBUG, "Host DoH {0} usando getaddrinfo original".format(host))
@@ -197,7 +219,7 @@ class DNSOverride(object):
 
             ip = self.resolve(host)
             if ip:
-                return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, port))]
+                return self.original_getaddrinfo(ip, port, *args, **kwargs)
             log_customdns(logging.WARNING, "Falha ao resolver {0}, usando getaddrinfo original".format(host))
             if not self.debug_mode:
                 return self.original_getaddrinfo(host, port, *args, **kwargs)
@@ -205,6 +227,8 @@ class DNSOverride(object):
             log_customdns(logging.ERROR, "Erro no resolver para {0}: {1}".format(host, e))
         if not self.debug_mode:
             return self.original_getaddrinfo(host, port, *args, **kwargs)
+
+_DNS_OVERRIDE = DNSOverride()
 
 # Inicialização forçada do Proxy
 # Deve ser feita após a definição da classe DNSOverride para garantir que o patch do socket.getaddrinfo já esteja ativo.

@@ -499,7 +499,7 @@ class XtreamCodes:
         global PARAMS
         global URL_BASE_PARAMS
         global CHECK_URL_PARAMS
-        if '.ts' in url or '/hl' in url and not '.ts' in url:
+        if '.ts' in url or ('/hl' in url and '.ts' not in url):
             self_server.send_header('Content-type','video/mp2t')
             self_server.end_headers()            
             if url.startswith('/') and not '/hl' in url:
@@ -511,6 +511,8 @@ class XtreamCodes:
                     ts = 'https://' + URL_BASE.split('/')[2] + '/' + url
                 else:
                     ts = 'http://' + URL_BASE.split('/')[2] + '/' + url
+            else:
+                ts = url
             for i in range(MAX_RETRY):
                 count = i + 1
                 if STOP_SERVER:
