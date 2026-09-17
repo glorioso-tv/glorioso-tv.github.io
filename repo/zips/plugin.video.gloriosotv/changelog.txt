@@ -1,2 +1,2 @@
-[B]Version 1.1.8[/B]
+[B]Version 1.1.9[/B]
 Matrix compatible version

@@ -91,7 +91,8 @@ def player_input(name, url, iconimage, description):
         from extra_lib.customdns import DNSOverride
     except Exception:
         from customdns import DNSOverride
-    DNSOverride()
+    
+    dns_resolver = DNSOverride()
 
     if name:
         name = "GLORIOSO TV - INPUTSTREAM FFMPEGDIRECT - " + name
@@ -140,6 +141,22 @@ def player_input(name, url, iconimage, description):
 
             play_item.setContentLookup(False)
             play_item.setProperty("IsPlayable", "true")
+
+            # --- RESOLUÇÃO DOH INJETADA NO LIBCURL SEM REMOVER PROPRIEDADES ---
+            try:
+                raw_stream_url = url.split('|')[0]
+                parsed_url = urlparse(raw_stream_url)
+                domain = parsed_url.hostname
+                port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
+
+                if domain and not dns_resolver.is_valid_ipv4(domain):
+                    resolved_ip = dns_resolver.resolve(domain)
+                    if resolved_ip:
+                        dns_mapping = f"{domain}:{port}:{resolved_ip}"
+                        play_item.setProperty('inputstream.ffmpegdirect.curl_option.resolve', dns_mapping)
+            except Exception:
+                pass
+            # -----------------------------------------------------------------
 
             if '$$lic' in url:
                 url, lic = url.split('$$lic=')
@@ -227,7 +244,7 @@ def player_input(name, url, iconimage, description):
         else:
             notify("O link não é M3U8")
     else:
-        notify("Formato inválido!")	
+        notify("Formato inválido!")
 	
 class MyPlayer(xbmc.Player):
     def __init__(self):
@@ -344,4 +361,4 @@ def run(params):
         proxy2_player(url, name, iconimage)
     elif op == 3:
         # CORRIGIDO: Ordem dos parâmetros alinhada com def player_input(name, url, iconimage, description)
-        player_input(name, url, iconimage, description)		
+        player_input(name, url, iconimage, description)

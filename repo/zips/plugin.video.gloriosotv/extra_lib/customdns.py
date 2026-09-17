@@ -229,11 +229,3 @@ class DNSOverride(object):
             return self.original_getaddrinfo(host, port, *args, **kwargs)
 
 _DNS_OVERRIDE = DNSOverride()
-
-# Inicialização forçada do Proxy
-# Deve ser feita após a definição da classe DNSOverride para garantir que o patch do socket.getaddrinfo já esteja ativo.
-try:
-    from extra_lib.proxy import proxyOverride
-    proxyOverride()
-except Exception:
-    log_customdns(logging.ERROR, "Falha ao iniciar proxyOverride no customdns.py")
