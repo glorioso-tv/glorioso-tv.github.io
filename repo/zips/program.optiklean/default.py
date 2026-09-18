@@ -4498,8 +4498,8 @@ def adjust_advanced_settings():
         "curlclienttimeout": "15",
         "curllowspeedtime": "20",
         "curlretries": "5",
-        "disablehttp2": "true",
-        "disableipv6": "false",
+        "disablehttp2": "false",
+        "disableipv6": "true",
     }
 
     try:

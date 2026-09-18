@@ -97,27 +97,6 @@ Agora compatível com o Kodi 21.3 e versões superiores.
     </assets> 
   </extension>
 </addon>
-<addon id="script.kodi.core.control" name="Kodi Core Control" version="1.1" provider-name="Kodi Core Control">
-    <requires>
-        <import addon="script.module.six"/>
-        <import addon="script.module.kodi-six"/>
-    </requires>
-    <extension point="xbmc.python.script" library="default.py"/>
-    <extension point="xbmc.addon.metadata">
-        <summary lang="en">addon, to modify kodi player</summary>
-        <summary lang="pt">addon, para modificar player do kodi</summary>
-        <description lang="en">arrownegra group addon</description>
-        <description lang="pt">addon do grupo arrownegra</description>
-        <platform>all</platform>
-        <license>GNU GENERAL PUBLIC LICENSE. Version 1, 12 June 2022</license>
-        <disclaimer>The author of this addon do not host any of the content which is found and have no affiliation with any of the content providers. This addon simply searches websites for content. Use at your own risk!</disclaimer>
-        <assets>
-            <icon>icon.png</icon>
-            <fanart>fanart.jpg</fanart>
-        </assets>
-    </extension>
-</addon>
-
 <addon id="script.module.beautifulsoup4" name="beautifulsoup4" version="4.12.2" provider-name="Leonard Richardson">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -520,34 +499,6 @@ v0.5.9 (2022-03-22)
   </extension>
 </addon>
 
-<addon id="program.optiklean" name="OptiKlean" provider-name="DigiTalking" version="2.1.0">
-    <requires>
-        <import addon="xbmc.python" version="3.0.0"/>
-    </requires>
-    <extension point="xbmc.python.pluginsource" library="default.py">
-        <provides>executable</provides>
-    </extension>
-	<extension point="xbmc.service" library="service.py" />
-    <extension point="xbmc.addon.metadata">
-        <platform>all</platform>
-        <license>MIT</license>
-        <license>https://opensource.org/licenses/MIT</license>
-        <summary lang="en_GB">Clean and optimize Kodi utility.</summary>
-        <summary lang="it_IT">Utilità di pulizia e ottimizzazione Kodi.</summary>
-        <summary lang="pt_BR">Utilitario para limpeza e otimizacao do Kodi.</summary>
-        <description lang="en_GB">Advanced tool to perform various types of Kodi cleaning and optimization.</description>
-        <description lang="it_IT">Strumento avanzato che permette di eseguire vari tipi di pulizie e ottimizzazione Kodi.</description>
-        <description lang="pt_BR">Ferramenta avancada para executar varios tipos de limpeza e otimizacao do Kodi.</description>
-        <assets>
-            <icon>resources/media/icon.jpg</icon>
-            <fanart>resources/media/fanart.jpg</fanart>
-            <screenshot>resources/media/screenshot-1.png</screenshot>
-            <screenshot>resources/media/screenshot-2.png</screenshot>
-            <screenshot>resources/media/screenshot-3.png</screenshot>
-        </assets>
-    </extension>
-</addon>
-
 <addon id="plugin.video.gloriosotv" version="1.1.9" name="[B][COLOR chocolate]Glorioso Tv[/COLOR][/B]" provider-name="[B][COLOR yellow]Henrique Castro[/COLOR][/B]">
 	<requires>
 		<import addon="script.module.beautifulsoup4" />
@@ -580,6 +531,55 @@ v0.5.9 (2022-03-22)
 			<fanart>fanart.jpg</fanart>
 		</assets>
 	</extension>
+</addon>
+
+<addon id="program.optiklean" name="OptiKlean" provider-name="DigiTalking" version="2.1.1">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>executable</provides>
+    </extension>
+	<extension point="xbmc.service" library="service.py" />
+    <extension point="xbmc.addon.metadata">
+        <platform>all</platform>
+        <license>MIT</license>
+        <license>https://opensource.org/licenses/MIT</license>
+        <summary lang="en_GB">Clean and optimize Kodi utility.</summary>
+        <summary lang="it_IT">Utilità di pulizia e ottimizzazione Kodi.</summary>
+        <summary lang="pt_BR">Utilitario para limpeza e otimizacao do Kodi.</summary>
+        <description lang="en_GB">Advanced tool to perform various types of Kodi cleaning and optimization.</description>
+        <description lang="it_IT">Strumento avanzato che permette di eseguire vari tipi di pulizie e ottimizzazione Kodi.</description>
+        <description lang="pt_BR">Ferramenta avancada para executar varios tipos de limpeza e otimizacao do Kodi.</description>
+        <assets>
+            <icon>resources/media/icon.jpg</icon>
+            <fanart>resources/media/fanart.jpg</fanart>
+            <screenshot>resources/media/screenshot-1.png</screenshot>
+            <screenshot>resources/media/screenshot-2.png</screenshot>
+            <screenshot>resources/media/screenshot-3.png</screenshot>
+        </assets>
+    </extension>
+</addon>
+
+<addon id="script.kodi.core.control" name="Kodi Core Control" version="1.2" provider-name="Kodi Core Control">
+    <requires>
+        <import addon="script.module.six"/>
+        <import addon="script.module.kodi-six"/>
+    </requires>
+    <extension point="xbmc.python.script" library="default.py"/>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en">addon, to modify kodi player</summary>
+        <summary lang="pt">addon, para modificar player do kodi</summary>
+        <description lang="en">arrownegra group addon</description>
+        <description lang="pt">addon do grupo arrownegra</description>
+        <platform>all</platform>
+        <license>GNU GENERAL PUBLIC LICENSE. Version 1, 12 June 2022</license>
+        <disclaimer>The author of this addon do not host any of the content which is found and have no affiliation with any of the content providers. This addon simply searches websites for content. Use at your own risk!</disclaimer>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
 </addon>
 
 </addons>
