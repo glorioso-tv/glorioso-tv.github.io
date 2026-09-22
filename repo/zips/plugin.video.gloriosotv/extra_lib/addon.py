@@ -88,10 +88,15 @@ def player_tsdownloader(name,url,iconimage,description):
 
 def player_input(name, url, iconimage, description):
     try:
-        from extra_lib.customdns import DNSOverride
+        from extra_lib.dnscompat import DNSOverride
     except Exception:
-        from customdns import DNSOverride
+        from dnscompat import DNSOverride
+    try:
+        from extra_lib.secureurl import play_url as secure_play_url
+    except Exception:
+        from secureurl import play_url as secure_play_url
     
+    url = secure_play_url(url)  # criptografa o stream (http -> https)
     dns_resolver = DNSOverride()
 
     if name:
@@ -154,6 +159,42 @@ def player_input(name, url, iconimage, description):
                     if resolved_ip:
                         dns_mapping = f"{domain}:{port}:{resolved_ip}"
                         play_item.setProperty('inputstream.ffmpegdirect.curl_option.resolve', dns_mapping)
+
+                # Segue o redirect via DoH: alguns servidores redirecionam para
+                # hosts que o DNS do sistema so devolve em IPv6 (ou nem devolve),
+                # o que quebra o curl do Kodi. Resolvemos o destino final aqui
+                # (via requests + DoH) e tocamos direto na URL final, ja com o
+                # IP correto injetado no curl. Funciona para m3u8 e ts.
+                try:
+                    import requests as _rq
+                    hdrs = {}
+                    try:
+                        if '|' in url:
+                            extra = url.split('|', 1)[1]
+                            if 'User-Agent=' in extra:
+                                hdrs['User-Agent'] = extra.split('User-Agent=')[1].split('&')[0]
+                    except Exception:
+                        hdrs = {}
+                    _r = _rq.get(raw_stream_url, headers=hdrs, stream=True, timeout=(3, 5), allow_redirects=True)
+                    _final = _r.url
+                    try:
+                        _r.close()
+                    except Exception:
+                        pass
+                    if (_final and _final.startswith('http')
+                            and _final.split('|')[0] != raw_stream_url):
+                        url = _final + ('|' + url.split('|', 1)[1] if '|' in url else '')
+                        _p2 = urlparse(_final.split('|')[0])
+                        _dom2 = _p2.hostname
+                        _port2 = _p2.port or (443 if _p2.scheme == 'https' else 80)
+                        if _dom2 and not dns_resolver.is_valid_ipv4(_dom2):
+                            _ip2 = dns_resolver.resolve(_dom2)
+                            if _ip2:
+                                play_item.setProperty(
+                                    'inputstream.ffmpegdirect.curl_option.resolve',
+                                    f"{_dom2}:{_port2}:{_ip2}")
+                except Exception:
+                    pass
             except Exception:
                 pass
             # -----------------------------------------------------------------

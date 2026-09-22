@@ -1,231 +1,299 @@
 # -*- coding: utf-8 -*-
+#
+# Servidor Proxy SOCKS5 com Resolução DNS-over-HTTPS (DoH) via Cloudflare
+#
+# Este script usa o protocolo SOCKS5 e resolve nomes de domínio através do
+# serviço DoH da Cloudflare (https://cloudflare-dns.com/dns-query), que é
+# altamente confiável e rápido, resolvendo problemas de timeout.
+#
+# Compatível com Kodi 19 (Python 3.8), 20 e 21.3.
+# Dependência: requests (script.module.requests, já declarado no addon.xml).
+# Execução: python3 proxy.py
+#
+# DEBUG HABILITADO PARA RASTREAR QUEDAS DE CONEXÃO.
+
 import socket
-import ipaddress
-import random
-import struct
-import sys
-import logging
 import threading
-import requests
+import sys
+import os
 try:
-    from urllib.parse import urlparse
+    import requests # Disponível no Kodi via script.module.requests
 except ImportError:
-    from urlparse import urlparse
+    requests = None
+import json
+import struct
+import select # Para controle de timeout no socket
+import ipaddress
+from datetime import datetime
 
-# Configura logging para depuração
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- Configurações do SOCKS5 ---
+HOST = '0.0.0.0'
+PORT = 1080  # Porta padrão para SOCKS5
+BUFFER_SIZE = 4096
+VERSION = 0x05 # Versão SOCKS 5
+CUSTOM_DNS = 'https://cloudflare-dns.com/dns-query'
 
-ORIGINAL_GETADDRINFO = socket.getaddrinfo
-DNS_CACHE = {}
-DNS_CACHE_LOCK = threading.RLock()
-SOCKET_PATCHED = False
+# Timeout de 20.0 segundos para o DoH
+DOH_TIMEOUT = 20.0
 
+def log(message):
+    """Log com timestamp. Dentro do Kodi vai para o kodi.log com o
+    prefixo [customdns]; fora do Kodi cai no print normal."""
+    line = f"[customdns] [{datetime.now().strftime('%H:%M:%S')}] {message}"
+    try:
+        import xbmc
+        level = getattr(xbmc, 'LOGINFO', 1) # 1 = LOGINFO (LOGNOTICE não existe mais no Kodi 21.3/Py3.13)
+        xbmc.log(line, level)
+    except ImportError:
+        print(line)
 
-def log_customdns(level, message):
-    logging.log(level, "[customdns] {0}".format(message))
-
-class DNSOverride(object):
-    def __init__(self, dns_server="1.1.1.1"):
-        global SOCKET_PATCHED
-        self.dns_server = dns_server # Servidor DNS padrão
-        self.doh_servers = [
-            "https://cloudflare-dns.com/dns-query",
-			"https://dns.alidns.com/resolve",
-			"https://dns.adguard.com/resolve",
-        ]
-        self.doh_hosts = set()
-        for doh_url in self.doh_servers:
+def resolve_via_doh(domain):
+    """Resolve o nome de domínio usando o DNS-over-HTTPS da Cloudflare."""
+    log(f"[DOH INÍCIO] Tentando resolver: {domain}")
+    try:
+        headers = {'Accept': 'application/dns-json'}
+        params = {'name': domain, 'type': 'A'}
+        data = None
+        
+        if requests is not None:
+            response = requests.get(CUSTOM_DNS, headers=headers, params=params, timeout=DOH_TIMEOUT)
+            response.raise_for_status()
+            data = response.json()
+        else:
+            # Fallback com urllib (stdlib do Kodi 19 ao 21.3)
+            from urllib.parse import urlencode
             try:
-                host = urlparse(doh_url).hostname
-                if host:
-                    self.doh_hosts.add(host)
-            except Exception:
-                pass # Ignora exceções
-        self.PY2 = sys.version_info[0] == 2
-        self.original_getaddrinfo = ORIGINAL_GETADDRINFO
-        self.cache = DNS_CACHE
-        self.debug_mode = False  # Modo de depuração ativado
-
-        # Ativa override apenas uma vez para evitar encadeamento e perda de cache
-        if not SOCKET_PATCHED:
-            socket.getaddrinfo = self._resolver
-            SOCKET_PATCHED = True
-
-    def bchr(self, val):
-        return chr(val) if self.PY2 else bytes([val]) # Retorna caractere ou byte
-
-    def bjoin(self, parts):
-        return b"".join(parts)
-
-    def to_bytes(self, val):
-        if self.PY2:
-            return val if isinstance(val, str) else val.encode("utf-8")
-        return val if isinstance(val, bytes) else val.encode("utf-8")
+                from urllib.request import Request, urlopen
+            except ImportError:
+                from urllib2 import Request, urlopen
+            url = CUSTOM_DNS + '?' + urlencode(params)
+            req = Request(url, headers=headers)
+            response = urlopen(req, timeout=DOH_TIMEOUT)
+            data = json.loads(response.read().decode('utf-8'))
+        
+        if data.get('Status') == 0 and 'Answer' in data:
+            for record in data['Answer']:
+                if record['type'] == 1: # Tipo 1 é registro A (IPv4)
+                    log(f"[DOH OK] {domain} -> {record['data']}")
+                    return record['data'] 
+        
+        log(f"[DOH FALHA] Resposta sem registro A para {domain}. Status: {data.get('Status')}")
+        return None
     
-    def is_valid_ipv4(self, ip):
-        try:
-            return ipaddress.ip_address(ip).version == 4
-        except (ValueError, TypeError):
-            return False    
-
-    def resolve_doh(self, domain):
-        if domain in self.doh_hosts:
-            log_customdns(logging.DEBUG, "Bypass DoH para host do resolvedor: {0}".format(domain))
-            return None
-
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/dns-json"
-        }
-        params = {
-            "name": domain,
-            "type": "A"
-        }
-
-        for url in self.doh_servers:
-            try: # Tenta resolver via DoH
-                log_customdns(logging.DEBUG, "Consultando {0} via DoH {1}".format(domain, url))
-                response = requests.get(url, params=params, headers=headers, timeout=(3, 5))
-                with response:
-                    if response.status_code != 200:
-                        log_customdns(
-                            logging.WARNING,
-                            "DoH retornou HTTP {0} para {1} em {2}".format(response.status_code, domain, url)
-                        )
-                        if response.status_code == 429:
-                            break
-                        continue
-
-                    data = response.json()
-                if data.get("Status") == 0 and "Answer" in data:
-                    for answer in data["Answer"]:
-                        ip = answer.get("data") # IP resolvido
-                        if self.is_valid_ipv4(ip):
-                            with DNS_CACHE_LOCK:
-                                self.cache[domain] = ip
-                            log_customdns(logging.DEBUG, "Resolved {0} to {1} via DoH".format(domain, ip))
-                            return ip
-
-                log_customdns(
-                    logging.WARNING,
-                    "DoH sem resposta valida para {0} em {1} (Status={2})".format(
-                        domain, url, data.get("Status", "desconhecido")
-                    )
-                )
-            except Exception as e:
-                log_customdns(logging.WARNING, "Falha DoH para {0} em {1}: {2}".format(domain, url, e))
-
+    except Exception as e:
+        log(f"[ERRO DOH] Falha ao consultar Cloudflare para {domain}: {e}")
         return None
 
-    def resolve(self, domain):
-        domain = domain.rstrip('.').lower()
-        with DNS_CACHE_LOCK:
-            cached_ip = self.cache.get(domain)
-        if cached_ip:
-            log_customdns(logging.DEBUG, "Cache hit for {0}: {1}".format(domain, cached_ip))
-            return cached_ip
+def handle_socks5_connection(client_socket, client_addr):
+    """Lida com o handshake SOCKS5 e roteamento de dados."""
+    dest_socket = None
+    log(f"[HANDLER INÍCIO] Conexão de: {client_addr}")
+    try:
+        # 1. Negociação de Método (Apenas Sem Autenticação 0x00)
+        client_socket.settimeout(5) # Timeout curto para o handshake
+        
+        # Leitura da versão e métodos
+        data = client_socket.recv(BUFFER_SIZE)
+        if not data or data[0] != VERSION:
+            raise Exception("Versão SOCKS inválida ou dados incompletos.")
+        log(f"[SOCKS1] Versão SOCKS5 e métodos recebidos.")
 
-        ip = self.resolve_doh(domain)
-        if ip:
-            return ip
+        methods = data[2:]
+        if 0x00 not in methods:
+            # Resposta: 0x05 (SOCKS5), 0xFF (Sem métodos aceitáveis)
+            client_socket.sendall(b'\x05\xFF')
+            raise Exception("Nenhum método de autenticação aceitável.")
+        
+        # Resposta: 0x05 (SOCKS5), 0x00 (Sem Autenticação aceito)
+        client_socket.sendall(b'\x05\x00')
+        log(f"[SOCKS1 OK] Sem autenticação aceita.")
 
-        def build_query(domain):
-            tid = random.randint(0, 65535)
-            header = struct.pack(">HHHHHH", tid, 0x0100, 1, 0, 0, 0) # Empacota o cabeçalho
-            qname_parts = []
-            for part in domain.split('.'):
-                if not part:
-                    continue
-                qname_parts.append(self.bchr(len(part)))
-                qname_parts.append(self.to_bytes(part))
-            qname_parts.append(self.bchr(0))
-            qname = self.bjoin(qname_parts)
-            question = qname + struct.pack(">HH", 1, 1)  # A, IN
-            return header + question, tid
+        # 2. Requisição de Conexão
+        data = client_socket.recv(BUFFER_SIZE)
+        if not data or data[0] != VERSION or data[1] != 0x01: # 0x01 = Comando CONNECT
+            raise Exception("Requisição SOCKS5 inválida ou comando não é CONNECT.")
+        
+        log(f"[SOCKS2] Comando CONNECT recebido.")
 
-        def parse_response(data, tid):
-            if len(data) < 12:
-                log_customdns(logging.ERROR, "Resposta DNS muito curta") # Erro de resposta curta
-                return None
-            if struct.unpack(">H", data[:2])[0] != tid:
-                log_customdns(logging.ERROR, "ID da transacao DNS nao corresponde")
-                return None
-            answers = struct.unpack(">H", data[6:8])[0]
-            i = 12
-            while i < len(data) and (ord(data[i]) if self.PY2 else data[i]) != 0:
-                i += 1
-            i += 5
-            for _ in range(answers): # Itera sobre as respostas
-                if i + 10 >= len(data):
-                    log_customdns(logging.ERROR, "Resposta DNS invalida: truncada")
-                    return None
-                i += 2  # Pular name
-                type_, class_, ttl, rdlen = struct.unpack(">HHIH", data[i:i+10])
-                i += 10
-                if type_ == 1 and class_ == 1 and rdlen == 4:  # A record, IN class
-                    ip = ".".join(str(ord(c)) if self.PY2 else str(c) for c in data[i:i+4]) # Converte para IP
-                    with DNS_CACHE_LOCK:
-                        self.cache[domain] = ip
-                    log_customdns(logging.DEBUG, "Resolved {0} to {1}".format(domain, ip))
-                    return ip
-                i += rdlen
-            log_customdns(logging.WARNING, "Nenhum registro A encontrado para {0}".format(domain))
-            return None
+        addr_type = data[3]
+        
+        dest_addr = None
+        dest_port = None
 
+        if addr_type == 0x01: # IPv4
+            dest_addr = socket.inet_ntoa(data[4:8])
+            dest_port = struct.unpack('>H', data[8:10])[0]
+            log(f"[DESTINO] IPv4: {dest_addr}:{dest_port}")
+
+        elif addr_type == 0x03: # Nome de Domínio
+            domain_len = data[4]
+            domain = data[5:5+domain_len].decode('utf-8')
+            dest_port = struct.unpack('>H', data[5+domain_len:7+domain_len])[0]
+            
+            # --- PONTO CRÍTICO: RESOLUÇÃO DOH ---
+            log(f"[DESTINO] Domínio: {domain}:{dest_port}. Iniciando DoH.")
+            dest_addr = resolve_via_doh(domain)
+            
+            if not dest_addr:
+                # Falha na Resolução: Resposta 0x05 0x04 (Host inacessível)
+                log(f"[SOCKS FALHA] Falha na resolução DOH para {domain}. Enviando 0x04.")
+                client_socket.sendall(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
+                raise Exception(f"Falha na resolução DOH para {domain}.")
+
+        elif addr_type == 0x04: # IPv6
+            # O SOCKS5 não suporta IPv6 no nosso script simplificado.
+            # Resposta 0x05 0x08 (Tipo de endereço não suportado)
+            log("[SOCKS FALHA] Endereço IPv6 não suportado. Enviando 0x08.")
+            client_socket.sendall(b'\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00')
+            raise Exception("Endereço IPv6 não suportado.")
+        else:
+            # Resposta 0x05 0x08 (Tipo de endereço não suportado)
+            log("[SOCKS FALHA] Tipo de endereço SOCKS5 desconhecido. Enviando 0x08.")
+            client_socket.sendall(b'\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00')
+            raise Exception("Tipo de endereço SOCKS5 desconhecido.")
+
+        # 3. Conectar ao Destino
+        dest_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+        # Timeout de conexão de 20 segundos para maior robustez
+        dest_socket.settimeout(20) 
+        
+        log(f"[CONECTANDO] Tentando conexão com {dest_addr}:{dest_port}")
+        dest_socket.connect((dest_addr, dest_port))
+        log(f"[CONECTADO SUCESSO] Conexão estabelecida com {dest_addr}:{dest_port}.")
+        
+        # Resposta de Sucesso: 0x05 0x00 (Sucesso)
+        bind_addr = dest_socket.getsockname()[0]
+        bind_port = dest_socket.getsockname()[1]
+        reply = b'\x05\x00\x00\x01' + socket.inet_aton(bind_addr) + bind_port.to_bytes(2, 'big')
+        client_socket.sendall(reply)
+        log("[HANDSHAKE COMPLETO] Resposta SOCKS5 de sucesso enviada ao cliente. Iniciando túnel.")
+
+        # 4. Inicia o Túnel de Dados
+        tunnel_data_transfer(client_socket, dest_socket, client_addr)
+
+    except socket.timeout:
+        log(f"[ERRO HANDLER] Timeout de socket durante o handshake ou conexão com destino para {client_addr}.")
+        # Tenta enviar falha SOCKS5 (0x06: TTL expirado/Timeout)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(3)
-            query, tid = build_query(domain) # Constrói a query
-            log_customdns(logging.DEBUG, "Consultando {0} via DNS {1}:53".format(domain, self.dns_server))
-            s.sendto(query, (self.dns_server, 53))
-            data, _ = s.recvfrom(512)
-            return parse_response(data, tid)
-        except socket.timeout:
-            log_customdns(logging.ERROR, "Timeout ao consultar DNS para {0}".format(domain))
-            return None
+             client_socket.sendall(b'\x05\x06\x00\x01\x00\x00\x00\x00\x00\x00')
+        except:
+             pass
+    except ConnectionResetError:
+        log(f"[ERRO HANDLER] Cliente {client_addr} resetou a conexão durante o handshake.")
+    except Exception as e:
+        log(f"[ERRO GERAL NO HANDLER] Falha para {client_addr}: {e}")
+        # Tenta enviar resposta de falha se ainda não tiver enviado (0x05: Connection refused)
+        try:
+            client_socket.sendall(b'\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00') 
+        except:
+            pass
+    finally:
+        client_socket.close()
+        if dest_socket: dest_socket.close()
+        log(f"[HANDLER FIM] Conexão encerrada para {client_addr}.")
+
+def tunnel_data_transfer(source_socket, destination_socket, client_addr):
+    """Transfere dados bidirecionalmente usando select com timeout."""
+    # Define um timeout de inatividade para o túnel de dados (5 minutos)
+    TIMEOUT = 300 
+    
+    inputs = [source_socket, destination_socket]
+    
+    log(f"[TÚNEL INICIADO] Transferência de dados iniciada para {client_addr}. Timeout de inatividade: {TIMEOUT}s.") 
+    
+    while inputs:
+        try:
+            # Espera que um socket esteja pronto para ler ou atinge o timeout
+            readable, _, exceptional = select.select(inputs, [], inputs, TIMEOUT)
         except Exception as e:
-            log_customdns(logging.ERROR, "Erro ao resolver {0}: {1}".format(domain, e))
-            return None
-        finally:
+            log(f"[ERRO SELECT] Falha no select para {client_addr}: {e}") 
+            break 
+        
+        if exceptional:
+             log(f"[ERRO EXCEPCIONAL] Exceção em um socket para {client_addr}. Encerrando.")
+             break
+
+        if not readable:
+            log(f"[TÚNEL TIMEOUT] Inatividade de {TIMEOUT}s atingida para {client_addr}. Encerrando o túnel.") 
+            break
+
+        for sock in readable:
             try:
-                s.close()
-            except UnboundLocalError:
-                pass
+                data = sock.recv(BUFFER_SIZE)
+                
+                if not data:
+                    # Conexão encerrada pelo outro lado (graceful close)
+                    log(f"[TÚNEL FECHADO] Conexão encerrada pelo lado {'CLIENTE' if sock == source_socket else 'DESTINO'} para {client_addr}.") 
+                    # Remove o socket fechado para o loop continuar com o outro, se ainda ativo
+                    if sock in inputs: inputs.remove(sock)
+                    
+                else:
+                    # Encaminha os dados
+                    if sock == source_socket:
+                        destination_socket.sendall(data)
+                        # log(f"[DADOS] {len(data)} bytes -> DESTINO") # Descomente para log de tráfego
+                    else:
+                        source_socket.sendall(data)
+                        # log(f"[DADOS] {len(data)} bytes -> CLIENTE") # Descomente para log de tráfego
+            
+            except ConnectionResetError:
+                # O outro lado forçou o fechamento (abrupt close)
+                log(f"[ERRO DE DADOS] Conexão resetada pelo lado {'CLIENTE' if sock == source_socket else 'DESTINO'} para {client_addr}.") 
+                inputs.clear() # Limpa tudo para encerrar o túnel
+                break
+            
+            except Exception as e:
+                # Outro erro de leitura/escrita, encerra
+                log(f"[ERRO DE DADOS GERAL] Falha na leitura/escrita de dados para {client_addr}: {e}") 
+                inputs.clear() # Limpa tudo para encerrar o túnel
+                break
+    
+    log(f"[TÚNEL ENCERRADO] Fim da transferência de dados para {client_addr}.")
+
+
+def main(monitor=None):
+    """Inicializa e executa o servidor proxy SOCKS5 principal.
+
+    Se um monitor do Kodi (xbmc.Monitor) for passado, o servidor checa
+    o abort a cada 1 segundo e encerra limpo quando o Kodi fechar.
+    """
+    server_socket = None
+    try:
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((HOST, PORT))
+        server_socket.listen(10)
+        # Timeout no accept para poder checar o monitor do Kodi periodicamente
+        server_socket.settimeout(1.0)
+        log(f"Servidor Proxy SOCKS5 + DNS-over-HTTPS (DoH) Ativo em {HOST}:{PORT}")
+        
+        while True:
+            if monitor is not None and monitor.abortRequested():
+                log("Kodi esta encerrando. Finalizando o proxy SOCKS5.")
+                break
+            try:
+                client_socket, addr = server_socket.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            log(f"[NOVA CONEXÃO] Aceita de {addr[0]}:{addr[1]}")
+            client_handler = threading.Thread(target=handle_socks5_connection, args=(client_socket, addr))
+            client_handler.daemon = True
+            client_handler.start()
+
+    except KeyboardInterrupt:
+        log("Servidor encerrado por comando do usuário.")
+    except Exception as e:
+        log(f"Erro Fatal no Servidor Principal: {e}")
+    finally:
+        if server_socket is not None:
+            try:
+                server_socket.close()
             except Exception:
                 pass
+        log("Servidor Proxy SOCKS5 encerrado.")
 
-    def _resolver(self, host, port, *args, **kwargs):
-        try:
-            if isinstance(host, bytes):
-                host = host.decode("ascii", "ignore")
-            if not host:
-                return self.original_getaddrinfo(host, port, *args, **kwargs)
-            host = host.rstrip('.')
-            family = args[0] if args else kwargs.get('family', socket.AF_UNSPEC)
-            if family == socket.AF_INET6:
-                return self.original_getaddrinfo(host, port, *args, **kwargs)
-            # Se já for um IP válido, retorna direto
-            if self.is_valid_ipv4(host):
-                log_customdns(logging.DEBUG, "Bypass DNS: {0} ja e um IP".format(host))
-                return self.original_getaddrinfo(host, port, *args, **kwargs)
-
-            if host in self.doh_hosts:
-                log_customdns(logging.DEBUG, "Host DoH {0} usando getaddrinfo original".format(host))
-                return self.original_getaddrinfo(host, port, *args, **kwargs)
-
-            ip = self.resolve(host)
-            if ip:
-                return self.original_getaddrinfo(ip, port, *args, **kwargs)
-            log_customdns(logging.WARNING, "Falha ao resolver {0}, usando getaddrinfo original".format(host))
-            if not self.debug_mode:
-                return self.original_getaddrinfo(host, port, *args, **kwargs)
-        except Exception as e:
-            log_customdns(logging.ERROR, "Erro no resolver para {0}: {1}".format(host, e))
-        if not self.debug_mode:
-            return self.original_getaddrinfo(host, port, *args, **kwargs)
-
-_DNS_OVERRIDE = DNSOverride()
+if __name__ == '__main__':
+    main()

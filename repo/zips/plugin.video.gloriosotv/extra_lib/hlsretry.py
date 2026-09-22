@@ -30,9 +30,14 @@ import base64
 import random
 import binascii 
 try:
-    from extra_lib.customdns import DNSOverride
+    from extra_lib.dnscompat import DNSOverride
 except:
-    from customdns import DNSOverride
+    from dnscompat import DNSOverride
+try:
+    from extra_lib.secureurl import patch_requests as _patch_requests_https
+except:
+    from secureurl import patch_requests as _patch_requests_https
+_patch_requests_https()
 DNSOverride()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -939,6 +944,8 @@ class XtreamProxy:
     def start(self):
         status = self.check_service()
         if status == False:
+            global STOP_SERVER
+            STOP_SERVER = False  # /stop anterior não pode matar o novo servidor
             proxy_service = threading.Thread(target=loop_server)
             proxy_service.daemon = True
             proxy_service.start()
