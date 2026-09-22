@@ -1,4 +1,4 @@
-<settings>
+﻿<settings>
   <category label="Login">
     <setting label="Usuario" option="hidden" id="username" type="text" default=""/>
     <setting label="Senha" option="hidden" id="password" type="text" default=""/>
@@ -14,7 +14,6 @@
     <setting id="genesisorpulsar" type="enum" values="Genesis|Pulsar" label="Play IMDBid with:" default="Genesis"/>
     <setting id="donotshowbychannels" label="Do Not show items under channel name" type="bool" default="false"/>
     <setting id="show_adult_categories" label="Mostrar categorias adultas" type="bool" default="false"/>
-    <setting id="force_https" label="Forcar HTTPS nos streams (criptografa o video contra a operadora)" type="bool" default="true"/>
   </category>
   <category label="Controle dos Pais">
     <setting label="[COLOR lightblue]Controle dos Pais:[/COLOR]" type="lsep"/>

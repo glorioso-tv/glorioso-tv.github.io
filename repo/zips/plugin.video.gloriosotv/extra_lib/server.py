@@ -16,14 +16,9 @@ import threading
 import requests
 import time
 try:
-    from extra_lib.dnscompat import DNSOverride
+    from extra_lib.customdns import DNSOverride
 except:
-    from dnscompat import DNSOverride
-try:
-    from extra_lib.secureurl import patch_requests as _patch_requests_https
-except:
-    from secureurl import patch_requests as _patch_requests_https
-_patch_requests_https()
+    from customdns import DNSOverride
 	
 HOST_NAME = '127.0.0.1'
 PORT_NUMBER = 55334

@@ -13,14 +13,9 @@ import requests
 import logging
 import base64
 try:
-    from extra_lib.dnscompat import DNSOverride
+    from extra_lib.customdns import DNSOverride
 except:
-    from dnscompat import DNSOverride
-try:
-    from extra_lib.secureurl import patch_requests as _patch_requests_https
-except:
-    from secureurl import patch_requests as _patch_requests_https
-_patch_requests_https()
+    from customdns import DNSOverride
 DNSOverride()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -171,45 +166,6 @@ class XtreamCodes:
                         if r is not None:
                             r.close()
 
-            except:
-                pass
-
-    def send_m3u8(self, self_server, url):
-        """Baixa o manifesto e reescreve os segmentos para passarem por este
-        proxy (que busca via requests, com https quando o servidor aceita)."""
-        global HEADERS_BASE
-        try:
-            self_server.send_header('Content-type', 'application/vnd.apple.mpegurl')
-            self_server.send_header('Connection', 'close')
-            self_server.end_headers()
-            try:
-                url = url.split('|', 1)[0]
-                url = url.split('%7C', 1)[0]
-            except:
-                pass
-            DNSOverride()
-            r = requests.get(url, headers=HEADERS_BASE, allow_redirects=True, stream=True, verify=False, timeout=(3, 10))
-            text = r.text
-            try:
-                r.close()
-            except:
-                pass
-            try:
-                from urllib.parse import urljoin
-            except ImportError:
-                from urlparse import urljoin
-            out = []
-            for line in text.splitlines():
-                s = line.strip()
-                if not s or s.startswith('#'):
-                    out.append(line)
-                    continue
-                seg = urljoin(url, s)
-                out.append(url_proxy + seg)
-            self_server.conn.sendall(('\n'.join(out) + '\n').encode('utf-8', 'replace'))
-        except Exception:
-            try:
-                self_server.send_response(404)
             except:
                 pass
 
@@ -373,9 +329,6 @@ class ProxyHandler(XtreamCodes):
             # XTREAM CODES E FORMATOS TS
             if '.mp4' in url and not '.m3u8' in url and not '.ts' in url:
                 self.stream_video(url, request_data)                    
-            elif '.m3u8' in url:
-                self.send_response(200) # envia status 200 sempre
-                self.send_m3u8(self, url)
             elif '.ts' in url or is_xtream_link:
                 self.send_response(200) # envia status 200 sempre
                 self.send_ts(self, url)
@@ -456,8 +409,6 @@ class XtreamProxy:
     def start(self):
         status = self.check_service()
         if status == False:
-            global STOP_SERVER
-            STOP_SERVER = False  # /stop anterior não pode matar o novo servidor
             proxy_service = threading.Thread(target=loop_server, daemon=True)
             proxy_service.start()
             monitor_service = threading.Thread(target=monitor, daemon=True)
