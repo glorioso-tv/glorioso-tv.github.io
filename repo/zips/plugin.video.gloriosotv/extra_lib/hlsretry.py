@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import socket
 import threading
-import time
 import six
 if six.PY3:
     from urllib.parse import urlparse, parse_qs, quote, unquote, unquote_plus, quote_plus
@@ -67,8 +66,12 @@ def log(msg):
     except:    
         logger.info(msg)    
 
-# Dentro do addon o proxy escuta exclusivamente localhost em IPv4
-HOST_NAME = '127.0.0.1'
+#HOST_NAME será alterado de acordo com o modo fake
+if USE_FAKE_IP:
+    # dentro do addon o proxy escuta apenas localhost, sem expor IP real
+    HOST_NAME = '127.0.0.1'
+else:
+    HOST_NAME = get_local_ip()
 PORT_NUMBER = 58500
 
 url_proxy = 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url='
@@ -88,7 +91,7 @@ global URL_BASE_PARAMS
 global CHECK_URL_PARAMS
 global URL_BASE_STALKER
 global TOKEN_STALKER
-MAX_RETRY = 40
+MAX_RETRY = 28
 DELAY_MODE = True
 URL_BASE = ''
 URL_BASE_PARAMS = ''
@@ -137,7 +140,7 @@ class XtreamCodes:
         global USE_FAKE_IP
         header = HEADERS_BASE
         # cabeçalhos padrão básicos
-        header.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'})
+        header.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'})
         # se habilitado, adiciona IP falso em vários campos comuns
         if USE_FAKE_IP:
             fake_ip = get_fake_ip()
@@ -178,7 +181,7 @@ class XtreamCodes:
     def set_headers(self,url):
         global URL_BASE
         global HEADERS_BASE        
-        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36', 'Accept-Encoding': 'gzip, deflate','Connection': 'keep-alive'}
+        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36', 'Accept-Encoding': 'gzip, deflate','Connection': 'keep-alive'}
         headers = {}
         if 'User-Agent' in url:
             try:
@@ -324,11 +327,11 @@ class XtreamCodes:
         if not resultados:
             resultados = re.findall(padrao2, m3u)
         if resultados:
-            base_m3u8 = m3u.split('#EXTINF')[0]
+            base_m3u = m3u.split('#EXTINF')[0]
             duas_ultimas_linhas = resultados[-1:]
             for linha in duas_ultimas_linhas:
-                base_m3u8 += linha
-            m3u = base_m3u8
+                base_m3u += linha
+            m3u = base_m3u
         return m3u
 
     def magical_hls(self,url):
@@ -428,12 +431,14 @@ class XtreamCodes:
                 count = i + 1
                 if STOP_SERVER:
                     break
+                # if count == MAX_RETRY - 4:
+                #     notify('Canal ruim, tente outro canal ou lista')
                 log('URL POS PROCESSAMENTO: %s'%url)
                 header_ = self.update_headers()
                 if RESOLUTION:                  
                     try:                         
                         DNSOverride()
-                        r = requests.get(url,headers=header_, allow_redirects=True, timeout=(3.5, 6), verify=False)
+                        r = requests.get(url,headers=header_, allow_redirects=True, timeout=2, verify=False)
                         code = r.status_code
                         log('Status Code: %s'%str(code))
                         if code == 200:
@@ -454,7 +459,7 @@ class XtreamCodes:
                 try:
                     log('URL FINAL DO M3U: %s'%url)                      
                     DNSOverride()
-                    r = requests.get(url,headers=header_, allow_redirects=True, timeout=(4, 12), verify=False)
+                    r = requests.get(url,headers=header_, allow_redirects=True, timeout=4, verify=False)
                     code = r.status_code
                     log('TESTE DO JOEL')
                     log('HEADERS: %s'%str(header_))
@@ -482,9 +487,8 @@ class XtreamCodes:
                             src = src.encode('utf-8') #if six.PY3 else src
                             self_server.conn.sendall(src)
                             break
-                        time.sleep(1.5)
                 except:
-                    time.sleep(1.5)
+                    pass
 
     def send_ts(self,self_server,url):
         global MAX_RETRY
@@ -518,48 +522,35 @@ class XtreamCodes:
                 count = i + 1
                 if STOP_SERVER:
                     break              
+                # if count == MAX_RETRY - 4:
+                #     notify('Canal ruim, tente outro canal ou lista')
                 try:
                     header_ = self.update_headers()
                     DNSOverride()
-                    r = requests.get(ts, headers=header_, allow_redirects=True, stream=True, timeout=(4, 15), verify=False)
+                    r = requests.get(ts, headers=header_, allow_redirects=True, stream=True, verify=False)
                     code = r.status_code
                     log('Status Code: %s'%str(code))
                     if code == 200:
                         CACHE_CHUNKS = []
-                        client_disconnected = False
-                        try:
-                            for chunk in r.iter_content(50*1024):                      
-                                try:
-                                    self_server.conn.sendall(chunk)
-                                    CACHE_CHUNKS.append(chunk)
-                                except Exception:
-                                    client_disconnected = True
-                                    break
-                        finally:
+                        for chunk in r.iter_content(50*1024):                      
                             try:
-                                r.close()
-                            except Exception:
+                                self_server.conn.sendall(chunk)
+                                CACHE_CHUNKS.append(chunk)
+                            except:
                                 pass
-                        if client_disconnected:
-                            break
                         break
                     else:
                         if i == 0:
                             DELAY_MODE = False
                         if CACHE_CHUNKS:
                             try:
+                                #self.wfile.write(CACHE_CHUNKS[-1])
                                 self_server.conn.sendall(CACHE_CHUNKS[-1])
                             except:
                                 pass
-                        time.sleep(1.5)
 
                 except:
-                    if CACHE_CHUNKS:
-                        try:
-                            self_server.conn.sendall(CACHE_CHUNKS[-1])
-                        except:
-                            pass
-                    time.sleep(1.5)
+                    pass
 
     def parse_url(self,url):
         parsed_url = urlparse(url)
@@ -627,10 +618,9 @@ class XtreamCodes:
                             src = src.encode('utf-8') #if six.PY3 else src
                             self_server.conn.sendall(src)
                             break
-                        time.sleep(1.5)
                         
                 except:
-                    time.sleep(1.5)
+                    pass
                     
     
     def send_ts_stalker(self,self_server,url): 
@@ -679,18 +669,13 @@ class XtreamCodes:
                             DELAY_MODE = False
                         if CACHE_CHUNKS:
                             try:
+                                #self.wfile.write(CACHE_CHUNKS[-1])
                                 self_server.conn.sendall(CACHE_CHUNKS[-1])
                             except:
                                 pass
-                        time.sleep(1.5)
 
                 except:
-                    if CACHE_CHUNKS:
-                        try:
-                            self_server.conn.sendall(CACHE_CHUNKS[-1])
-                        except:
-                            pass
-                    time.sleep(1.5)
+                    pass         
 
 
 class ProxyHandler(XtreamCodes):
@@ -789,74 +774,30 @@ class ProxyHandler(XtreamCodes):
         global URL_BASE, LAST_URL, HEADERS_BASE, STOP_SERVER, CACHE_CHUNKS, CACHE_M3U8, DELAY_MODE
         global RESOLUTION, LAST_M3U8, PARAMS, URL_BASE_PARAMS, CHECK_URL_PARAMS, URL_BASE_STALKER, TOKEN_STALKER       
         
-        request_data = b""
-        try:
-            self.conn.settimeout(5.0)
-            while b"\r\n\r\n" not in request_data and len(request_data) < 8192:
-                chunk = self.conn.recv(1024)
-                if not chunk:
-                    break
-                request_data += chunk
-        except Exception:
-            pass
-
-        if not request_data:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
-
+        request_data = self.conn.recv(1024)
         self.parse_request(request_data)
         self.parse_request2(request_data)
         
         if self.request_method == 'HEAD':
-            ct = 'application/x-mpegURL' if ('.m3u8' in self.path or 'm3u' in self.path) else 'video/mp2t'
-            resp = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" % ct).encode()
-            try:
-                self.conn.sendall(resp)
-            except Exception:
-                pass
-            return
+            self.send_response(200)
+            pass
         elif self.path == "/stop":
             self.send_response(200)
-            self.send_header("Content-Length", "0")
-            self.send_header("Connection", "close")
-            self.end_headers()
             STOP_SERVER = True
             URL_BASE = ''; LAST_URL = ''; HEADERS_BASE = {}; CACHE_CHUNKS = []; CACHE_M3U8 = ''
             DELAY_MODE = True; LAST_M3U8 = ''; RESOLUTION = True; PARAMS = ''
             CHECK_URL_PARAMS = True; URL_BASE_STALKER = ''; TOKEN_STALKER = ''           
             self.server.stop_server()
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
         elif self.path == "/reset":
             self.send_response(200)
-            self.send_header("Content-Length", "0")
-            self.send_header("Connection", "close")
-            self.end_headers()
             URL_BASE = ''; LAST_URL = ''; HEADERS_BASE = {}; CACHE_CHUNKS = []; CACHE_M3U8 = ''
             DELAY_MODE = True; RESOLUTION = True; LAST_M3U8 = ''; PARAMS = ''
             URL_BASE_PARAMS = ''; CHECK_URL_PARAMS = True; URL_BASE_STALKER = ''; TOKEN_STALKER = ''
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
         elif self.path == '/check':
             self.send_response(200)
             self.send_header("Content-type", "text/html")
-            self.send_header("Connection", "close")
             self.end_headers()
-            try:
-                self.conn.sendall(b"Hello, world!")
-                self.conn.close()
-            except Exception:
-                pass
-            return
+            self.conn.sendall(b"Hello, world!")
         else:
             url_path = unquote_plus(self.path)
             self.set_headers(url_path)
@@ -1003,8 +944,6 @@ class XtreamProxy:
     def start(self):
         status = self.check_service()
         if status == False:
-            global STOP_SERVER
-            STOP_SERVER = False  # /stop anterior não pode matar o novo servidor
             proxy_service = threading.Thread(target=loop_server)
             proxy_service.daemon = True
             proxy_service.start()

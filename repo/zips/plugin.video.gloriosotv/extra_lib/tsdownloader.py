@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import socket
 import threading
-import time
 import six
 if six.PY3:
     from urllib.parse import urlparse, parse_qs, quote, unquote, unquote_plus, quote_plus
@@ -47,8 +46,8 @@ def log(msg):
     except:
         pass
 
-# Escuta exclusivamente localhost em IPv4
-HOST_NAME = '127.0.0.1'
+#HOST_NAME = '127.0.0.1'
+HOST_NAME = get_local_ip()
 PORT_NUMBER = 58550
 
 url_proxy = 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/?url='
@@ -63,7 +62,8 @@ class XtreamCodes:
     def set_headers(self,url):
         global URL_BASE
         global HEADERS_BASE        
-        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36', 'Connection': 'keep-alive'}
+        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0', 'Connection': 'keep-alive'}
+        #headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0'}
         headers = {}
         if 'User-Agent' in url:
             try:
@@ -120,7 +120,7 @@ class XtreamCodes:
                 headers['Origin'] = origin
             except:
                 pass
-        
+        #HEADERS_ = headers if headers else headers_default
         if headers != {}:
             headers.update({'Connection': 'keep-alive'})
             HEADERS_ = headers
@@ -135,103 +135,42 @@ class XtreamCodes:
         if url:
             self_server.send_header('Content-type','video/mp2t')
             self_server.end_headers() 
+            # try:
+            #     r = requests.get(url, headers=HEADERS_BASE, allow_redirects=True, stream=True, verify=False, timeout=4)
+            #     url = r.url
+            # except:
+            #     pass
             try:
                 url = url.split('|', 1)[0]
                 url = url.split('%7C', 1)[0]
-                downloaded_bytes = 0
-                last_chunk = b""
-                
-                for i in range(40):
+                for i in range(10):
                     if STOP_SERVER:
                         break
                     count = i + 1
                     stop_user = False
-                    header_ = HEADERS_BASE.copy() if isinstance(HEADERS_BASE, dict) else {}
-                    
-                    if downloaded_bytes > 0:
-                        header_['Range'] = 'bytes=%s-' % str(downloaded_bytes)
-                        
+                    header_ = HEADERS_BASE
                     DNSOverride()
                     r = None
                     try:
                         r = requests.get(url, headers=header_, allow_redirects=True, stream=True, verify=False, timeout=(3, 10))
                         code = r.status_code
                         log('Status Code: %s'%str(code))
-                        if code == 200 or code == 206:
+                        if code == 200:
                             for chunk in r.iter_content(chunk_size=8192):
                                 if STOP_SERVER:
                                     break
                                 if chunk:
-                                    last_chunk = chunk  # Guarda em cache o último trecho válido
-                                    downloaded_bytes += len(chunk)
                                     try:
                                         self_server.conn.sendall(chunk)
                                     except:
                                         stop_user = True
                                         break
-                        else:
-                            # Se falhar, envia cache e pausa
-                            if last_chunk:
-                                try:
-                                    self_server.conn.sendall(last_chunk)
-                                except:
-                                    stop_user = True
-                            time.sleep(1.5)
-                    except:
-                        # Se houver erro de rede, envia cache e pausa
-                        if last_chunk:
-                            try:
-                                self_server.conn.sendall(last_chunk)
-                            except:
-                                stop_user = True
-                        time.sleep(1.5)
+                        elif stop_user or count == 7:
+                            break
                     finally:
                         if r is not None:
-                            try:
-                                r.close()
-                            except:
-                                pass
-                    
-                    if stop_user or count >= 40:
-                        break
+                            r.close()
 
-            except:
-                pass
-
-    def send_m3u8(self, self_server, url):
-        global HEADERS_BASE
-        try:
-            self_server.send_header('Content-type', 'application/vnd.apple.mpegurl')
-            self_server.send_header('Connection', 'close')
-            self_server.end_headers()
-            try:
-                url = url.split('|', 1)[0]
-                url = url.split('%7C', 1)[0]
-            except:
-                pass
-            DNSOverride()
-            r = requests.get(url, headers=HEADERS_BASE, allow_redirects=True, stream=True, verify=False, timeout=(3, 10))
-            text = r.text
-            try:
-                r.close()
-            except:
-                pass
-            try:
-                from urllib.parse import urljoin
-            except ImportError:
-                from urlparse import urljoin
-            out = []
-            for line in text.splitlines():
-                s = line.strip()
-                if not s or s.startswith('#'):
-                    out.append(line)
-                    continue
-                seg = urljoin(url, s)
-                out.append(url_proxy + seg)
-            self_server.conn.sendall(('\n'.join(out) + '\n').encode('utf-8', 'replace'))
-        except Exception:
-            try:
-                self_server.send_response(404)
             except:
                 pass
 
@@ -307,7 +246,8 @@ class ProxyHandler(XtreamCodes):
             if response.status_code == 200:
                 content_length = int(response.headers.get('Content-Length', 0))
                 start, end = self.get_range(request_data, content_length)
-                headers['Range'] = 'bytes=%s-%s'%(str(start),str(end))
+                #headers['Range'] = f'bytes={start}-{end}'  # Adicionando cabeçalho de intervalo
+                headers['Range'] = 'bytes=%s-%s'%(str(start),str(end))  # Adicionando cabeçalho de intervalo
                 DNSOverride()
                 response = requests.get(video_url, headers=headers, stream=True, timeout=(3, 10))
                 if response.status_code == 206 or response.status_code == 200:
@@ -317,12 +257,15 @@ class ProxyHandler(XtreamCodes):
             else:
                 self.send_response(404)
         except Exception as e:
+            #print("Error streaming video:", e)
             self.send_response(500)
 
     def send_partial_response(self, status_code, headers, content_length, content_generator, start, end):
         self.send_response(status_code)
+        #self.send_header('Content-type','video/mp4')
         self.send_header("Accept-Ranges", "bytes")
         if start is not None:
+            #self.send_header("Content-Range", f"bytes {start}-{end}/{content_length}")
             self.send_header("Content-Range", "bytes %s-%s/%s"%(str(start),str(end),str(content_length)))
         for key, value in headers.items():
             self.send_header(key, value)
@@ -340,69 +283,25 @@ class ProxyHandler(XtreamCodes):
     def handle_request(self):
         global HEADERS_BASE
         global STOP_SERVER    
-        request_data = b""
-        try:
-            self.conn.settimeout(5.0)
-            while b"\r\n\r\n" not in request_data and len(request_data) < 8192:
-                chunk = self.conn.recv(1024)
-                if not chunk:
-                    break
-                request_data += chunk
-        except Exception:
-            pass
-
-        if not request_data:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
-
+        request_data = self.conn.recv(1024)
         self.parse_request(request_data)
         self.parse_request2(request_data)
         if self.request_method == 'HEAD':
-            ct = 'application/vnd.apple.mpegurl' if ('.m3u8' in self.path or 'm3u' in self.path) else 'video/mp2t'
-            resp = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" % ct).encode()
-            try:
-                self.conn.sendall(resp)
-            except Exception:
-                pass
-            return
+            self.send_response(200) # envia status 200 sempre
+            pass
         elif self.path == "/stop":
-            self.send_response(200)
-            self.send_header("Content-Length", "0")
-            self.send_header("Connection", "close")
-            self.end_headers()
+            self.send_response(200) # envia status 200 sempre
             STOP_SERVER = True
             HEADERS_BASE = {}          
             self.server.stop_server()
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
         elif self.path == "/reset":
-            self.send_response(200)
-            self.send_header("Content-Length", "0")
-            self.send_header("Connection", "close")
-            self.end_headers()
+            self.send_response(200) # envia status 200 sempre
             HEADERS_BASE = {}
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            return
         elif self.path == '/check':
-            self.send_response(200)
+            self.send_response(200) # envia status 200 sempre
             self.send_header("Content-type", "text/html")
-            self.send_header("Connection", "close")
             self.end_headers()
-            try:
-                self.conn.sendall(b"Hello, world!")
-                self.conn.close()
-            except Exception:
-                pass
-            return
+            self.conn.sendall(b"Hello, world!")
         else:
             url_path = unquote_plus(self.path)
             try:
@@ -429,21 +328,20 @@ class ProxyHandler(XtreamCodes):
             else:
                 url = url_path
 
+            # Identifica links Xtream Codes (ex: /user/pass/12345)
             is_xtream_link = bool(re.search(r'/\w+/\w+/\d+$', url))
 
+            # XTREAM CODES E FORMATOS TS
             if '.mp4' in url and not '.m3u8' in url and not '.ts' in url:
                 self.stream_video(url, request_data)                    
-            elif '.m3u8' in url:
-                self.send_response(200)
-                self.send_m3u8(self, url)
             elif '.ts' in url or is_xtream_link:
-                self.send_response(200)
+                self.send_response(200) # envia status 200 sempre
                 self.send_ts(self, url)
             elif not '.m3u8' in url and not '.ts' in url and not '.mp3' in url and not '.rmv' in url and not '.rmvb' in url and not 'm3u8' in url:
-                self.send_response(200)
+                self.send_response(200) # envia status 200 sempre
                 self.send_ts(self, url)
                 
-        self.conn.close()
+        self.conn.close()  # Fechar o socket de conexão após enviar a resposta
 
 def monitor():
     try:
@@ -454,10 +352,16 @@ def monitor():
         monitor = xbmc.Monitor()
         while not monitor.waitForAbort(3):
             pass
+        #log('Ecerrando proxy server')
         url = 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/stop'
         try:
             DNSOverride()
             r = requests.get(url,timeout=4)
+        except:
+            pass
+        #log('Proxy encerrado')
+        try:
+            os._exit(1)
         except:
             pass
     except:
@@ -469,28 +373,19 @@ class Server:
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((HOST_NAME, PORT_NUMBER))
         self.server_socket.listen(10)
-        self.server_socket.settimeout(1.0)
 
     def serve_forever(self):
         global STOP_SERVER
         while True:
             if STOP_SERVER:
                 break
-            try:
-                conn, addr = self.server_socket.accept()
-            except socket.timeout:
-                continue
-            except Exception:
-                break
+            conn, addr = self.server_socket.accept()
             handler = ProxyHandler(conn, addr, self)
             thread = threading.Thread(target=handler.handle_request, daemon=True)
             thread.start()
 
     def stop_server(self):
-        try:
-            self.server_socket.close()
-        except:
-            pass
+        self.server_socket.close()
 
 def loop_server():
     server = Server()
@@ -519,11 +414,12 @@ class XtreamProxy:
     def start(self):
         status = self.check_service()
         if status == False:
-            global STOP_SERVER
-            STOP_SERVER = False
             proxy_service = threading.Thread(target=loop_server, daemon=True)
             proxy_service.start()
             monitor_service = threading.Thread(target=monitor, daemon=True)
             monitor_service.start()
         else:
             self.reset()
+
+# print('url proxy: ',url_proxy)
+# XtreamProxy().start()
