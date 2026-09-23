@@ -140,7 +140,7 @@ class XtreamCodes:
         global USE_FAKE_IP
         header = HEADERS_BASE
         # cabeçalhos padrão básicos
-        header.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'})
+        header.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'})
         # se habilitado, adiciona IP falso em vários campos comuns
         if USE_FAKE_IP:
             fake_ip = get_fake_ip()
@@ -181,7 +181,7 @@ class XtreamCodes:
     def set_headers(self,url):
         global URL_BASE
         global HEADERS_BASE        
-        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36', 'Accept-Encoding': 'gzip, deflate','Connection': 'keep-alive'}
+        headers_default = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36', 'Accept-Encoding': 'gzip, deflate','Connection': 'keep-alive'}
         headers = {}
         if 'User-Agent' in url:
             try:
