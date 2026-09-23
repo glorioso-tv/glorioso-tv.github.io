@@ -8,17 +8,28 @@ if six.PY3:
     from http.server import HTTPServer
     from http.server import BaseHTTPRequestHandler
     from http.server import SimpleHTTPRequestHandler
+    import socketserver
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 else:
     from BaseHTTPServer import BaseHTTPRequestHandler
     from SimpleHTTPServer import SimpleHTTPRequestHandler
     from BaseHTTPServer import HTTPServer
+    import SocketServer
+    class ThreadedHTTPServer(SocketServer.ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 import threading
 import requests
 import time
 try:
-    from extra_lib.customdns import DNSOverride
+    from extra_lib.dnscompat import DNSOverride
 except:
-    from customdns import DNSOverride
+    from dnscompat import DNSOverride
+try:
+    from extra_lib.secureurl import patch_requests as _patch_requests_https
+except:
+    from secureurl import patch_requests as _patch_requests_https
+_patch_requests_https()
 	
 HOST_NAME = '127.0.0.1'
 PORT_NUMBER = 55334
@@ -298,8 +309,10 @@ class handler(SimpleHTTPRequestHandler):
             t = threading.Thread(target=shutdown, args=(self.server, ))
             t.start() 
 
+        downloaded_bytes = 0
+        last_chunk = b""
 
-        for i in range(30):
+        for i in range(40):
             i = i + 1
             if STOP_SERVER:
                 break
@@ -321,23 +334,47 @@ class handler(SimpleHTTPRequestHandler):
             #         t.start()
             #         break
             if not STOP_SERVER:  
+                header_ = headers.copy() if isinstance(headers, dict) else {}
+                if downloaded_bytes > 0:
+                    header_['Range'] = 'bytes=%s-' % str(downloaded_bytes)
+                
+                stop_user = False
                 try:
-                    r = requests.get(url, headers=headers, stream=True, verify=False)
-                    if r.status_code == 200:
-                        self.send_stream_headers('video/mp2t')
+                    r = requests.get(url, headers=header_, stream=True, verify=False)
+                    if r.status_code == 200 or r.status_code == 206:
+                        if downloaded_bytes == 0:
+                            self.send_stream_headers('video/mp2t')
                         for chunk in r.iter_content(300000):                           
                             try:
                                 if chunk:
+                                    last_chunk = chunk
+                                    downloaded_bytes += len(chunk)
                                     self.wfile.write(chunk)
                                     self.wfile.flush()
                             except:
+                                stop_user = True
                                 break
                             if STOP_SERVER:
                                 break
+                    else:
+                        if last_chunk:
+                            try:
+                                self.wfile.write(last_chunk)
+                                self.wfile.flush()
+                            except:
+                                stop_user = True
+                        time.sleep(1.5)
                     r.close()
-                    break
+                    if stop_user:
+                        break
                 except:
-                    pass
+                    if last_chunk:
+                        try:
+                            self.wfile.write(last_chunk)
+                            self.wfile.flush()
+                        except:
+                            stop_user = True
+                    time.sleep(1.5)
             if STOP_SERVER:
                 break                           
             # if head_ts(url,headers):                                    
@@ -359,7 +396,7 @@ class handler(SimpleHTTPRequestHandler):
             #         break
             #     except:
             #         pass
-            if i == 15:
+            if i >= 39:
                 self.send_empty_response(404)
                 # def shutdown(server):
                 #     server.shutdown()
@@ -526,10 +563,13 @@ class handler(SimpleHTTPRequestHandler):
                 self.ts(url,GLOBAL_HEADERS,head=True)
             elif url.endswith(".html"):
                 self.ts(url,GLOBAL_HEADERS,head=True)
-            elif '.m3u8' in url:
-                self.m3u8(url,GLOBAL_HEADERS,head=True)
             elif not '/hl' in url and not '.ts' in url and TS_URL:
                 self.ts(url,GLOBAL_HEADERS,head=True)
+            else:
+                ct = 'application/vnd.apple.mpegurl' if ('.m3u8' in self.path or 'm3u' in self.path) else 'video/mp2t'
+                self.send_stream_headers(ct, status=200, content_length=0)
+        else:
+            self.send_empty_response()
 
     
     def do_GET(self):
@@ -616,7 +656,7 @@ def serve_forever(httpd):
 class mediaserver:
     def __init__(self):
         try:
-            self.httpd = HTTPServer(('', PORT_NUMBER), handler)
+            self.httpd = ThreadedHTTPServer(('127.0.0.1', PORT_NUMBER), handler)
             self.server_instance = True
         except:
             self.server_instance = False
@@ -630,7 +670,6 @@ class mediaserver:
         else:
             self.server_thread = False     
 
-    
     def in_use(self):
         url = 'http://'+HOST_NAME+':'+str(PORT_NUMBER)+'/check'
         use = False
@@ -648,7 +687,10 @@ class mediaserver:
         if not self.in_use():
             if self.server_thread:
                 self.server.start()
-                time.sleep(4)
+                for _ in range(15):
+                    if self.in_use():
+                        break
+                    time.sleep(0.1)
 
     def stop(self):
         if self.server_instance:

@@ -252,5 +252,3 @@ def server(monitor=None):
 
     logging.info("[PROXY] encerrando...")
     sock.close()
-
-

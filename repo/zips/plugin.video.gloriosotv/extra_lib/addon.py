@@ -88,10 +88,15 @@ def player_tsdownloader(name,url,iconimage,description):
 
 def player_input(name, url, iconimage, description):
     try:
-        from extra_lib.customdns import DNSOverride
+        from extra_lib.dnscompat import DNSOverride
     except Exception:
-        from customdns import DNSOverride
+        from dnscompat import DNSOverride
+    try:
+        from extra_lib.secureurl import play_url as secure_play_url
+    except Exception:
+        from secureurl import play_url as secure_play_url
     
+    url = secure_play_url(url)  # criptografa o stream (http -> https)
     dns_resolver = DNSOverride()
 
     if name:
@@ -154,6 +159,49 @@ def player_input(name, url, iconimage, description):
                     if resolved_ip:
                         dns_mapping = f"{domain}:{port}:{resolved_ip}"
                         play_item.setProperty('inputstream.ffmpegdirect.curl_option.resolve', dns_mapping)
+
+                # Força IPv4 explicitamente no libcurl do Kodi (CURL_IPRESOLVE_V4 = 1)
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.ipresolve', '1')
+                # Configurações de reconexão automática para o stream não cair com oscilações
+                play_item.setProperty('inputstream.ffmpegdirect.reconnect_on_error', 'true')
+                play_item.setProperty('inputstream.ffmpegdirect.reconnect_delay_max', '5')
+                play_item.setProperty('inputstream.ffmpegdirect.reconnect_on_http_error', '4xx,5xx')
+
+                # Segue o redirect via DoH: alguns servidores redirecionam para
+                # hosts que o DNS do sistema so devolve em IPv6 (ou nem devolve),
+                # o que quebra o curl do Kodi. Resolvemos o destino final aqui
+                # (via requests + DoH) e tocamos direto na URL final, ja com o
+                # IP correto injetado no curl. Funciona para m3u8 e ts.
+                try:
+                    import requests as _rq
+                    hdrs = {}
+                    try:
+                        if '|' in url:
+                            extra = url.split('|', 1)[1]
+                            if 'User-Agent=' in extra:
+                                hdrs['User-Agent'] = extra.split('User-Agent=')[1].split('&')[0]
+                    except Exception:
+                        hdrs = {}
+                    _r = _rq.get(raw_stream_url, headers=hdrs, stream=True, timeout=(3, 5), allow_redirects=True, verify=False)
+                    _final = _r.url
+                    try:
+                        _r.close()
+                    except Exception:
+                        pass
+                    if (_final and _final.startswith('http')
+                            and _final.split('|')[0] != raw_stream_url):
+                        url = _final + ('|' + url.split('|', 1)[1] if '|' in url else '')
+                        _p2 = urlparse(_final.split('|')[0])
+                        _dom2 = _p2.hostname
+                        _port2 = _p2.port or (443 if _p2.scheme == 'https' else 80)
+                        if _dom2 and not dns_resolver.is_valid_ipv4(_dom2):
+                            _ip2 = dns_resolver.resolve(_dom2)
+                            if _ip2:
+                                play_item.setProperty(
+                                    'inputstream.ffmpegdirect.curl_option.resolve',
+                                    f"{_dom2}:{_port2}:{_ip2}")
+                except Exception:
+                    pass
             except Exception:
                 pass
             # -----------------------------------------------------------------
@@ -190,7 +238,7 @@ def player_input(name, url, iconimage, description):
                 play_item.setProperty('inputstream.ffmpegdirect.max_bandwidth', '0')
                 play_item.setProperty('inputstream.ffmpegdirect.ignore_ts', 'false')
                 play_item.setProperty('inputstream.ffmpegdirect.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '10')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '15')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.timeout', '30')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.followlocation', '1')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifypeer', '0')
@@ -216,7 +264,7 @@ def player_input(name, url, iconimage, description):
                 play_item.setProperty('inputstream.ffmpegdirect.seekable', 'true')
                 play_item.setProperty('inputstream.ffmpegdirect.ignore_ts', 'false')
                 play_item.setProperty('inputstream.ffmpegdirect.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '10')
+                play_item.setProperty('inputstream.ffmpegdirect.curl_option.connecttimeout', '15')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.timeout', '30')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.followlocation', '1')
                 play_item.setProperty('inputstream.ffmpegdirect.curl_option.ssl_verifypeer', '0')
@@ -248,12 +296,27 @@ class MyPlayer(xbmc.Player):
 def _monitor_local_player(host, port):
     def monitor_player():
         monitor = xbmc.Monitor()
+        # Aguarda o player iniciar a reprodução por até 30 segundos
+        wait_count = 0
         while not monitor.abortRequested() and not xbmc.Player().isPlaying():
             if monitor.waitForAbort(0.25):
                 return
-        while xbmc.Player().isPlaying() and not monitor.abortRequested():
-            if monitor.waitForAbort(1):
+            wait_count += 1
+            if wait_count > 120:  # 30 segundos
                 break
+
+        # Monitora com tolerância contra falsos desligamentos durante buffering
+        stopped_count = 0
+        while not monitor.abortRequested():
+            if monitor.waitForAbort(1.0):
+                break
+            if not xbmc.Player().isPlaying():
+                stopped_count += 1
+                if stopped_count >= 6:  # Confirma 6 segundos sem tocar antes de parar
+                    break
+            else:
+                stopped_count = 0
+
         try:
             requests.get('http://%s:%s/stop' % (host, port), timeout=2)
         except Exception:
@@ -265,8 +328,25 @@ def _monitor_local_player(host, port):
 
 def monitor():
     monitor = xbmc.Monitor()
-    while xbmc.Player().isPlaying() and not monitor.abortRequested():
-        monitor.waitForAbort(1)
+    # Aguarda o player iniciar por até 30 segundos
+    wait_count = 0
+    while not monitor.abortRequested() and not xbmc.Player().isPlaying():
+        if monitor.waitForAbort(0.25):
+            return
+        wait_count += 1
+        if wait_count > 120:
+            break
+
+    stopped_count = 0
+    while not monitor.abortRequested():
+        if monitor.waitForAbort(1.0):
+            break
+        if not xbmc.Player().isPlaying():
+            stopped_count += 1
+            if stopped_count >= 6:
+                break
+        else:
+            stopped_count = 0
     server.req_shutdown()
 
 def proxy2_thread(name,iconImage,url_to_play):
@@ -300,12 +380,6 @@ def proxy2_player(url,name,iconImage):
     t1 = threading.Thread(target=proxy2_thread, args=(name,iconImage,url_to_play))
     t1.daemon = True
     t1.start()
-    count = 0
-    while not xbmc.Player().isPlaying():
-        count += 1
-        time.sleep(1)
-        if count == 12:
-            break
     t2 = threading.Thread(target=monitor)
     t2.daemon = True
     t2.start()
