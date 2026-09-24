@@ -15,6 +15,7 @@
     <setting id="donotshowbychannels" label="Do Not show items under channel name" type="bool" default="false"/>
     <setting id="show_adult_categories" label="Mostrar categorias adultas" type="bool" default="false"/>
     <setting id="force_https" label="Forcar HTTPS nos streams (criptografa o video contra a operadora)" type="bool" default="true"/>
+    <setting id="strict_https" label="Usar HTTPS quando disponivel (nao bloquear HTTP)" type="bool" default="true" />
   </category>
   <category label="Controle dos Pais">
     <setting label="[COLOR lightblue]Controle dos Pais:[/COLOR]" type="lsep"/>

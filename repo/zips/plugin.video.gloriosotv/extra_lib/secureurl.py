@@ -7,12 +7,11 @@
 #   localhost) usados pelos proxies internos do addon.
 # - Remove a porta :80 ao converter (https usa 443; ":80" quebrava o TLS).
 # - Mantem cache dos hosts que NAO aceitam https, para nao perder tempo
-#   tentando de novo (cai direto no http original).
-# - patch_requests() enrola requests.get/head/post: tenta https primeiro e,
-#   se o servidor recusar TLS OU devolver erro 4xx/5xx (enquanto o http
-#   funciona), refaz em http. Nenhum canal deixa de abrir.
+#   tentando de novo.
+# - patch_requests() enrola requests.get/head/post e volta para HTTP quando
+#   o servidor nao aceita HTTPS, para nao impedir a reproducao.
 # - play_url() e para tocar no Kodi: testa o https antes (1 vez por host,
-#   em cache); se nao estiver bom, devolve o http original.
+#   em cache); se nao estiver bom, usa o HTTP original.
 #
 # Pode ser desligado nas configuracoes do addon: "Forcar HTTPS nos streams".
 
@@ -72,6 +71,16 @@ def is_enabled():
             _enabled = True
         _checked_at = now
     return _enabled
+
+
+def is_strict_https():
+    """Impede reproducao sem TLS quando a protecao estrita esta ativa."""
+    try:
+        import xbmcaddon
+        value = xbmcaddon.Addon('plugin.video.gloriosotv').getSetting('strict_https')
+        return value != 'false'
+    except Exception:
+        return True
 
 
 def _host_of(url):
@@ -177,7 +186,7 @@ def _probe_https(url):
         if target == url:
             return False
         # Timeout reduzido para evitar travamento inicial no player
-        r = get(target, stream=True, timeout=(1.0, 2.0), allow_redirects=True, verify=False)
+        r = get(target, stream=True, timeout=(1.0, 2.0), allow_redirects=True, verify=True)
         ok = getattr(r, 'status_code', 0) < 400
         try:
             r.close()
@@ -189,11 +198,11 @@ def _probe_https(url):
 
 
 def patch_requests():
-    """Enrola requests.get/head/post/put com conversao https + fallback http resiliente.
+    """Enrola requests.get/head/post/put com conversao https resiliente.
 
     Idempotente: pode ser chamado varias vezes sem problema.
-    Fallback acontece quando o https da erro de conexao, timeout, SSL OU quando devolve
-    status 4xx/5xx e o http original responde melhor.
+    Se HTTPS falhar, a URL HTTP original e usada como fallback para nao
+    interromper a reproducao ou o carregamento da lista.
     """
     global _patched
     if _patched:
@@ -206,9 +215,6 @@ def patch_requests():
         except ImportError:
             return
 
-        # Captura todas as falhas de rede (ConnectionError, Timeout, SSLError, etc.)
-        fallback_errors = (requests.exceptions.RequestException, IOError, Exception)
-
         def _wrap(orig, name):
             _orig[name] = orig
 
@@ -220,26 +226,12 @@ def patch_requests():
                     return orig(url, *args, **kwargs)
                 try:
                     resp = orig(new_url, *args, **kwargs)
-                except fallback_errors:
-                    # TLS recusado, timeout ou conexao caiu: volta imediatamente pro http original
+                except Exception:
                     _mark_broken(url)
                     return orig(url, *args, **kwargs)
                 status = getattr(resp, 'status_code', 200)
                 if status >= 400:
-                    # https conectou mas o servidor negou (403/429/404/5xx):
-                    # tenta o http original e fica com o melhor resultado
-                    try:
-                        resp2 = orig(url, *args, **kwargs)
-                        status2 = getattr(resp2, 'status_code', 0)
-                        if status2 < status:
-                            _mark_broken(url)
-                            try:
-                                resp.close()
-                            except Exception:
-                                pass
-                            return resp2
-                    except Exception:
-                        pass
+                    _mark_broken(url)
                 return resp
             return wrapped
 
