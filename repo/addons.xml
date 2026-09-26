@@ -125,7 +125,7 @@
 	</extension>
 </addon>
 
-<addon id="program.optiklean" name="OptiKlean" provider-name="DigiTalking" version="2.1.1">
+<addon id="program.optiklean" name="OptiKlean" provider-name="DigiTalking" version="2.1.2">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
     </requires>

@@ -1637,9 +1637,15 @@ def clear_unused_thumbnails(auto_mode=False):
     skin_subfolders = ["thumbnails/", "media/Thumbnails/", "extras/Thumbnails/"]
     skin_thumb_paths = [ensure_path_format(os.path.join(skin_base, sub)) for sub in skin_subfolders]
 
-    thumb_paths = [p for p in [standard_thumb_path, alt_thumb_path] if xbmcvfs.exists(p)] + [
-        p for p in skin_thumb_paths if xbmcvfs.exists(p)
-    ]
+    thumb_paths = []
+    seen_thumb_paths = set()
+    for path in [standard_thumb_path, alt_thumb_path] + skin_thumb_paths:
+        path_key = os.path.normcase(os.path.normpath(path))
+        if path_key not in seen_thumb_paths and xbmcvfs.exists(path):
+            thumb_paths.append(path)
+            seen_thumb_paths.add(path_key)
+        elif path_key in seen_thumb_paths:
+            xbmc.log(f"OptiKlean DEBUG: Duplicate thumbnail path skipped: {path}", xbmc.LOGDEBUG)
 
     for p in thumb_paths:
         xbmc.log(f"OptiKlean DEBUG: Thumbnail path added: {p}", xbmc.LOGINFO)

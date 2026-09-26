@@ -1028,7 +1028,7 @@ msgstr "shutil e xbmcvfs falharam"
 
 msgctxt "#31290"
 msgid "Adjust advanced settings"
-msgstr "Ajustar advancedsettings"
+msgstr "Ajustar advancedsettings (Kodi 21.3)"
 
 msgctxt "#31291"
 msgid "Advanced network settings applied"

@@ -1842,7 +1842,7 @@ msgstr "Restore from backup"
 
 msgctxt "#31290"
 msgid "Adjust advanced settings"
-msgstr "Adjust advanced settings"
+msgstr "Adjust advancedsettings (Kodi 21.3)"
 
 msgctxt "#31291"
 msgid "Advanced network settings applied"
